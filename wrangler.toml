@@ -1,0 +1,28 @@
+name = "casa-planner"
+compatibility_date = "2026-09-01"
+main = "src/worker.js"
+
+# Sirve todo lo que haya en public/ (index.html, etc.) como archivos
+# estáticos. Las peticiones a /api/* las intercepta el Worker antes
+# de que se sirvan como archivo estático (ver run_worker_first).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "404-page"
+run_worker_first = ["/api/*"]
+
+# --- Espacios KV ---
+# PASO IMPORTANTE: sustituye "PON-AQUI-EL-ID..." por el ID real de cada
+# namespace, que verás en el panel de Cloudflare al crearlos (Storage &
+# Databases -> KV -> abre el namespace -> el ID aparece arriba).
+[[kv_namespaces]]
+binding = "USERS"
+id = "PON-AQUI-EL-ID-DE-casa-planner-users"
+
+[[kv_namespaces]]
+binding = "APPDATA"
+id = "PON-AQUI-EL-ID-DE-casa-planner-data"
+
+# JWT_SECRET NO va aquí (nunca subas secretos al repositorio).
+# Se añade aparte, desde el panel de Cloudflare o con:
+#   npx wrangler secret put JWT_SECRET
