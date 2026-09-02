@@ -17,11 +17,11 @@ run_worker_first = ["/api/*"]
 # Databases -> KV -> abre el namespace -> el ID aparece arriba).
 [[kv_namespaces]]
 binding = "USERS"
-id = "PON-AQUI-EL-ID-DE-casa-planner-users"
+id = "P8ffb5bb6860443978285f373b479c65b"
 
 [[kv_namespaces]]
 binding = "APPDATA"
-id = "PON-AQUI-EL-ID-DE-casa-planner-data"
+id = "b60a70644f5c45cc9f39d6da7ba42a31"
 
 # JWT_SECRET NO va aquí (nunca subas secretos al repositorio).
 # Se añade aparte, desde el panel de Cloudflare o con:
