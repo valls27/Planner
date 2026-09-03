@@ -463,6 +463,9 @@ function migrateProject(p){
   });
   if(!p.walls) p.walls = [];
   if(!p.columns) p.columns = [];
+  if(!p.photos) p.photos = []; 
+  if(!p.documents) p.documents = []; 
+  if(!p.links) p.links = [];
   p.walls.forEach(w=>{ if(!w.floor) w.floor = defaultFloorId; if(!w.openings) w.openings = []; });
   p.columns.forEach(c=>{ if(!c.floor) c.floor = defaultFloorId; });
   return p;
