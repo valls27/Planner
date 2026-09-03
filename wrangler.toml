@@ -1,4 +1,4 @@
-name = "casa-planner"
+name = "planner"
 compatibility_date = "2026-09-01"
 main = "src/worker.js"
 
@@ -17,7 +17,7 @@ run_worker_first = ["/api/*"]
 # Databases -> KV -> abre el namespace -> el ID aparece arriba).
 [[kv_namespaces]]
 binding = "USERS"
-id = "P8ffb5bb6860443978285f373b479c65b"
+id = "8ffb5bb6860443978285f373b479c65b"
 
 [[kv_namespaces]]
 binding = "APPDATA"
