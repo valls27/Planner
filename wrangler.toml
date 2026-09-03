@@ -26,3 +26,4 @@ id = "b60a70644f5c45cc9f39d6da7ba42a31"
 # JWT_SECRET NO va aquí (nunca subas secretos al repositorio).
 # Se añade aparte, desde el panel de Cloudflare o con:
 #   npx wrangler secret put JWT_SECRET
+ [observability] enabled = true Guarda con Commit changes
