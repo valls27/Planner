@@ -28,3 +28,8 @@ id = "b60a70644f5c45cc9f39d6da7ba42a31"
 #   npx wrangler secret put JWT_SECRET
  [observability] 
  enabled = true 
+ 
+# --- Almacén de archivos (fotos y documentos) ---
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "casa-planner-files"
