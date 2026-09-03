@@ -463,8 +463,8 @@ function migrateProject(p){
   });
   if(!p.walls) p.walls = [];
   if(!p.columns) p.columns = [];
-  if(!p.photos) p.photos = []; 
-  if(!p.documents) p.documents = []; 
+  if(!p.photos) p.photos = [];
+  if(!p.documents) p.documents = [];
   if(!p.links) p.links = [];
   p.walls.forEach(w=>{ if(!w.floor) w.floor = defaultFloorId; if(!w.openings) w.openings = []; });
   p.columns.forEach(c=>{ if(!c.floor) c.floor = defaultFloorId; });
@@ -2428,7 +2428,7 @@ function tabDocumentos(p){
         <label class="btn sm" style="margin:0">${ICONS.plus}Añadir foto<input type="file" accept="image/*" multiple style="display:none" onchange="addPhotos('${p.id}',this.files)"></label>
       </div>
       <div class="thumb-grid">
-        ${p.photos.map(ph=>`<div class="thumb"><img src="${ph.data}"><button class="rm" onclick="removePhoto('${p.id}','${ph.id}')">×</button></div>`).join('') || '<p style="color:var(--ink-soft);font-size:13px;grid-column:1/-1">Sin fotos todavía.</p>'}
+        ${p.photos.map(ph=>`<div class="thumb"><img src="${fileUrl(ph)}"><button class="rm" onclick="removePhoto('${p.id}','${ph.id}')">×</button></div>`).join('') || '<p style="color:var(--ink-soft);font-size:13px;grid-column:1/-1">Sin fotos todavía.</p>'}
       </div>
     </div>
     <div class="card">
@@ -2436,7 +2436,7 @@ function tabDocumentos(p){
         <h3 style="margin:0">Documentos (PDF, facturas, presupuestos...)</h3>
         <label class="btn sm" style="margin:0">${ICONS.plus}Añadir<input type="file" multiple style="display:none" onchange="addDocs('${p.id}',this.files)"></label>
       </div>
-      ${p.documents.map(d=>`<div class="doc-row"><span>📄</span><a href="${d.data}" download="${escapeHtml(d.name)}" style="flex:1">${escapeHtml(d.name)}</a><button class="icon-btn danger-hover" onclick="removeDoc('${p.id}','${d.id}')">${ICONS.trash}</button></div>`).join('') || '<p style="color:var(--ink-soft);font-size:13px">Sin documentos todavía.</p>'}
+      ${p.documents.map(d=>`<div class="doc-row"><span>📄</span><a href="${fileUrl(d)}" download="${escapeHtml(d.name)}" style="flex:1">${escapeHtml(d.name)}</a><button class="icon-btn danger-hover" onclick="removeDoc('${p.id}','${d.id}')">${ICONS.trash}</button></div>`).join('') || '<p style="color:var(--ink-soft);font-size:13px">Sin documentos todavía.</p>'}
     </div>
     <div class="card">
       <h3 style="margin-top:0">Enlaces</h3>
@@ -2449,18 +2449,67 @@ function tabDocumentos(p){
   `;
 }
 function fileToDataUrl(file){ return new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file); }); }
+
+// Sube un archivo al almacén en la nube (Cloudflare R2) en vez de
+// meterlo entero como texto en los datos del proyecto — así no hay
+// límite práctico de tamaño ni se llena el localStorage del navegador.
+async function uploadFile(file){
+  const token = getToken();
+  const res = await fetch('/api/files', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'X-File-Name': encodeURIComponent(file.name),
+      'Content-Type': file.type || 'application/octet-stream'
+    },
+    body: file
+  });
+  if(!res.ok) throw new Error('No se pudo subir '+file.name);
+  return res.json(); // {key, url, name}
+}
+// Añade el token de sesión como parámetro para poder mostrar la
+// imagen/documento en <img>/<a>, que no pueden enviar cabeceras.
+function fileUrl(item){
+  if(item.url) return item.url + '?t=' + encodeURIComponent(getToken());
+  return item.data || ''; // compatibilidad con fotos/documentos antiguos guardados en base64
+}
+async function deleteRemoteFile(key){
+  if(!key) return;
+  try{ await apiFetch('/api/files/'+key, {method:'DELETE'}); }catch(e){ console.warn('No se pudo borrar el archivo remoto', e); }
+}
+
 async function addPhotos(id, files){
   const p = getProject(id);
-  for(const f of files){ const data = await fileToDataUrl(f); p.photos.push({id:uid(), name:f.name, data}); }
+  for(const f of files){
+    try{
+      const {key, url} = await uploadFile(f);
+      p.photos.push({id:uid(), name:f.name, key, url});
+    }catch(e){ toast('Error subiendo '+f.name); }
+  }
   touchProject(p); refreshTab(p);
 }
-function removePhoto(id, pid){ const p=getProject(id); p.photos=p.photos.filter(x=>x.id!==pid); touchProject(p); refreshTab(p); }
+function removePhoto(id, pid){
+  const p=getProject(id);
+  const ph = p.photos.find(x=>x.id===pid);
+  if(ph && ph.key) deleteRemoteFile(ph.key);
+  p.photos=p.photos.filter(x=>x.id!==pid); touchProject(p); refreshTab(p);
+}
 async function addDocs(id, files){
   const p = getProject(id);
-  for(const f of files){ const data = await fileToDataUrl(f); p.documents.push({id:uid(), name:f.name, data}); }
+  for(const f of files){
+    try{
+      const {key, url} = await uploadFile(f);
+      p.documents.push({id:uid(), name:f.name, key, url});
+    }catch(e){ toast('Error subiendo '+f.name); }
+  }
   touchProject(p); refreshTab(p);
 }
-function removeDoc(id, did){ const p=getProject(id); p.documents=p.documents.filter(x=>x.id!==did); touchProject(p); refreshTab(p); }
+function removeDoc(id, did){
+  const p=getProject(id);
+  const d = p.documents.find(x=>x.id===did);
+  if(d && d.key) deleteRemoteFile(d.key);
+  p.documents=p.documents.filter(x=>x.id!==did); touchProject(p); refreshTab(p);
+}
 function addLink(id){
   const val = document.getElementById('link-input').value.trim(); if(!val) return;
   const p = getProject(id); p.links.push({id:uid(), url:val}); touchProject(p); refreshTab(p);
@@ -2742,7 +2791,7 @@ function exportProjectPDF(id){
       <h2>Cronograma</h2>
       <ul>${p.timeline.map(t=>`<li>${escapeHtml(t.phase)} — ${t.status}${t.start?(' ('+t.start+' → '+(t.end||'?')+')'):''}</li>`).join('')||'<li>—</li>'}</ul>
     </div>
-    ${p.photos.length?`<div class="pr-section"><h2>Fotografías</h2><div class="pr-photo-grid">${p.photos.map(ph=>`<img src="${ph.data}">`).join('')}</div></div>`:''}
+    ${p.photos.length?`<div class="pr-section"><h2>Fotografías</h2><div class="pr-photo-grid">${p.photos.map(ph=>`<img src="${fileUrl(ph)}">`).join('')}</div></div>`:''}
     ${(p.documents.length||p.links.length)?`<div class="pr-section"><h2>Documentos y enlaces</h2><ul>${p.documents.map(d=>`<li>📄 ${escapeHtml(d.name)}</li>`).join('')}${p.links.map(l=>`<li>🔗 ${escapeHtml(l.url)}</li>`).join('')}</ul></div>`:''}
     <div class="pr-footer">Generado con Casa Planner · ${new Date().toLocaleDateString('es-ES')}</div>
   `;
