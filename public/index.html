@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
 <title>Planos — Planificador de vivienda</title>
+<meta name="description" content="Planifica, presupuesta y sigue la reforma o construcción de tu vivienda.">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#1463D6">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Planos">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="/favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -466,7 +476,7 @@ function newProject(name){
     entradaPct:20, entradaMode:'preset', taxAuto:true, taxRate:8,
     budget, prosCons:[], tasks:[], timeline:[], rooms:[], walls:[], columns:[],
     floors:[{id:uid(), name:'Planta baja'}],
-    photos:[], documents:[], links:[],
+    photos:[], documents:[], links:[], activity:[],
     createdAt: nowISO(), updatedAt: nowISO()
   };
 }
@@ -496,6 +506,7 @@ function migrateProject(p){
   if(!p.photos) p.photos = [];
   if(!p.documents) p.documents = [];
   if(!p.links) p.links = [];
+  if(!p.activity) p.activity = [];
   p.walls.forEach(w=>{ if(!w.floor) w.floor = defaultFloorId; if(!w.openings) w.openings = []; });
   p.columns.forEach(c=>{ if(!c.floor) c.floor = defaultFloorId; });
   return p;
@@ -721,19 +732,27 @@ function createProject(){
   const p = newProject(name);
   p.type = document.getElementById('np-type').value;
   p.location = document.getElementById('np-loc').value.trim();
-  DB.projects.push(p); save(); closeModal();
+  DB.projects.push(p); logActivity(p, 'Proyecto creado.'); save(); closeModal();
   location.hash = `#/project/${p.id}/resumen`;
 }
 
 /* ---------- PROJECT ---------- */
 function getProject(id){ return DB.projects.find(p=>p.id===id); }
 function touchProject(p){ p.updatedAt = nowISO(); save(); }
+// Historial de actividad por proyecto: un registro ligero de los cambios
+// relevantes (no de cada arrastre en el plano, que sería demasiado ruido).
+function logActivity(p, msg){
+  if(!p.activity) p.activity = [];
+  p.activity.unshift({id:uid(), at: nowISO(), msg});
+  if(p.activity.length > 200) p.activity.length = 200;
+}
 
 function viewProject(id, tab){
   const p = getProject(id);
   if(!p){ return `<div class="empty"><h3>Proyecto no encontrado</h3><a class="btn" href="#/dashboard">Volver</a></div>`; }
   const tabs = [['resumen','Resumen'],['presupuesto','Presupuesto'],['proscontras','Pros y contras'],
-    ['plano','Plano'],['tareas','Tareas'],['cronograma','Cronograma'],['documentos','Fotos y documentos']];
+    ['plano','Plano'],['tareas','Tareas'],['cronograma','Cronograma'],['documentos','Fotos y documentos'],
+    ['actividad','Actividad']];
   return `
     <div class="pagehead">
       <div>
@@ -766,6 +785,7 @@ function renderProjectTab(p, tab){
     case 'tareas': return tabTareas(p);
     case 'cronograma': return tabCronograma(p);
     case 'documentos': return tabDocumentos(p);
+    case 'actividad': return tabActividad(p);
     default: return '';
   }
 }
@@ -801,7 +821,9 @@ function tabResumen(p){
 }
 function escapeHtml(s){ return (s||'').toString().replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function p_updateField(id, field, value){
-  const p = getProject(id); p[field]=value; touchProject(p);
+  const p = getProject(id);
+  if(field==='status' && p.status!==value) logActivity(p, `Estado cambiado de "${p.status}" a "${value}".`);
+  p[field]=value; touchProject(p);
   if(field==='status') route();
 }
 
@@ -836,6 +858,7 @@ function saveProjectMeta(id){
   p.maxBudget = Number(document.getElementById('ep-max').value)||0;
   p.description = document.getElementById('ep-desc').value;
   recomputeTaxIfAuto(p);
+  logActivity(p, 'Datos del proyecto editados.');
   touchProject(p); closeModal(); route();
 }
 function deleteProject(id){
@@ -2477,17 +2500,25 @@ function saveTask(id, editId){
     cost:Number(document.getElementById('tk-cost').value)||0};
   if(editId){
     const t = p.tasks.find(x=>x.id===editId); Object.assign(t, vals);
+    logActivity(p, `Tarea "${text}" editada.`);
   } else {
     p.tasks.push({id:uid(), ...vals, status:'Pendiente', notes:''});
+    logActivity(p, `Tarea "${text}" creada.`);
   }
   touchProject(p); closeModal(); refreshTab(p);
 }
 function toggleTask(id, tid, checked){
   const p = getProject(id); const t = p.tasks.find(t=>t.id===tid);
-  t.status = checked? 'Hecha':'Pendiente'; touchProject(p); refreshTab(p);
+  t.status = checked? 'Hecha':'Pendiente';
+  logActivity(p, `Tarea "${t.text}" marcada como ${t.status.toLowerCase()}.`);
+  touchProject(p); refreshTab(p);
 }
 function removeTask(id, tid){
-  const p = getProject(id); p.tasks = p.tasks.filter(t=>t.id!==tid); touchProject(p); refreshTab(p);
+  const p = getProject(id);
+  const t = p.tasks.find(t=>t.id===tid);
+  p.tasks = p.tasks.filter(t=>t.id!==tid);
+  if(t) logActivity(p, `Tarea "${t.text}" eliminada.`);
+  touchProject(p); refreshTab(p);
 }
 
 /* --- Cronograma --- */
@@ -2622,6 +2653,7 @@ function renderGanttChart(p){
 function loadDefaultTimeline(id){
   const p = getProject(id);
   p.timeline = DEFAULT_PHASES.map(ph=>({id:uid(), phase:ph, start:'', end:'', cost:0, status:'Pendiente', notes:'', dependsOn:[]}));
+  logActivity(p, 'Fases habituales cargadas.');
   touchProject(p); refreshTab(p);
 }
 function addPhase(id, editId){
@@ -2654,8 +2686,10 @@ function savePhase(id, editId){
     cost:Number(document.getElementById('ph-cost').value)||0, dependsOn};
   if(editId){
     const t = p.timeline.find(x=>x.id===editId); Object.assign(t, vals);
+    logActivity(p, `Fase "${name}" editada.`);
   } else {
     p.timeline.push({id:uid(), ...vals, status:'Pendiente', notes:''});
+    logActivity(p, `Fase "${name}" creada.`);
   }
   touchProject(p); closeModal(); refreshTab(p);
 }
@@ -2667,13 +2701,16 @@ function updatePhase(id, tid, field, value){
       refreshTab(p); return;
     }
   }
+  if(field==='status' && t.status!==value) logActivity(p, `Fase "${t.phase}": ${t.status} → ${value}.`);
   t[field]=value; touchProject(p); refreshTab(p);
 }
 function removePhase(id, tid){
   const p = getProject(id);
+  const t = p.timeline.find(x=>x.id===tid);
   p.timeline = p.timeline.filter(t=>t.id!==tid);
   // limpia referencias a la fase eliminada en las dependencias de las demás
   p.timeline.forEach(t=>{ if(t.dependsOn) t.dependsOn = t.dependsOn.filter(d=>d!==tid); });
+  if(t) logActivity(p, `Fase "${t.phase}" eliminada.`);
   touchProject(p); refreshTab(p);
 }
 
@@ -2738,41 +2775,82 @@ async function deleteRemoteFile(key){
 
 async function addPhotos(id, files){
   const p = getProject(id);
+  let count = 0;
   for(const f of files){
     try{
       const {key, url} = await uploadFile(f);
       p.photos.push({id:uid(), name:f.name, key, url});
+      count++;
     }catch(e){ toast('Error subiendo '+f.name); }
   }
+  if(count) logActivity(p, count===1?'1 foto añadida.':`${count} fotos añadidas.`);
   touchProject(p); refreshTab(p);
 }
 function removePhoto(id, pid){
   const p=getProject(id);
   const ph = p.photos.find(x=>x.id===pid);
   if(ph && ph.key) deleteRemoteFile(ph.key);
-  p.photos=p.photos.filter(x=>x.id!==pid); touchProject(p); refreshTab(p);
+  p.photos=p.photos.filter(x=>x.id!==pid);
+  if(ph) logActivity(p, `Foto "${ph.name}" eliminada.`);
+  touchProject(p); refreshTab(p);
 }
 async function addDocs(id, files){
   const p = getProject(id);
+  let count = 0;
   for(const f of files){
     try{
       const {key, url} = await uploadFile(f);
       p.documents.push({id:uid(), name:f.name, key, url});
+      count++;
     }catch(e){ toast('Error subiendo '+f.name); }
   }
+  if(count) logActivity(p, count===1?'1 documento añadido.':`${count} documentos añadidos.`);
   touchProject(p); refreshTab(p);
 }
 function removeDoc(id, did){
   const p=getProject(id);
   const d = p.documents.find(x=>x.id===did);
   if(d && d.key) deleteRemoteFile(d.key);
-  p.documents=p.documents.filter(x=>x.id!==did); touchProject(p); refreshTab(p);
+  p.documents=p.documents.filter(x=>x.id!==did);
+  if(d) logActivity(p, `Documento "${d.name}" eliminado.`);
+  touchProject(p); refreshTab(p);
 }
 function addLink(id){
   const val = document.getElementById('link-input').value.trim(); if(!val) return;
-  const p = getProject(id); p.links.push({id:uid(), url:val}); touchProject(p); refreshTab(p);
+  const p = getProject(id); p.links.push({id:uid(), url:val});
+  logActivity(p, `Enlace añadido: ${val}`);
+  touchProject(p); refreshTab(p);
 }
-function removeLink(id, lid){ const p=getProject(id); p.links=p.links.filter(x=>x.id!==lid); touchProject(p); refreshTab(p); }
+function removeLink(id, lid){
+  const p=getProject(id);
+  const l = p.links.find(x=>x.id===lid);
+  p.links=p.links.filter(x=>x.id!==lid);
+  if(l) logActivity(p, `Enlace eliminado: ${l.url}`);
+  touchProject(p); refreshTab(p);
+}
+
+/* --- Actividad --- */
+function fmtActivityDate(iso){
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'}) + ' · ' +
+    d.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+}
+function tabActividad(p){
+  const items = p.activity || [];
+  return `
+    <div class="card">
+      <h3 style="margin-top:0">Historial de cambios</h3>
+      <p style="color:var(--ink-soft);font-size:13px;margin-top:-6px">Registro de los cambios más importantes en este proyecto (se guardan los últimos 200).</p>
+      ${!items.length ? '<p style="color:var(--ink-soft);font-size:13px">Todavía no hay actividad registrada.</p>' : `
+      <div class="timeline">${items.map(a=>`
+        <div class="tl-item" style="--dot-bg:var(--blue);--dot-border:var(--blue)">
+          <div style="font-size:12px;color:var(--ink-soft)">${fmtActivityDate(a.at)}</div>
+          <div style="margin-top:2px">${escapeHtml(a.msg)}</div>
+        </div>`).join('')}</div>
+      `}
+    </div>
+  `;
+}
 
 /* ---------- COMPARE ---------- */
 let compareSel = [];
@@ -2894,10 +2972,15 @@ function removeMaterial(id){ DB.materials = DB.materials.filter(m=>m.id!==id); s
 /* ---------- SETTINGS ---------- */
 function viewSettings(){
   return `
-    <div class="pagehead"><div><div class="eyebrow">Datos locales</div><h1>Ajustes y copia de seguridad</h1><p>Todos tus datos viven únicamente en este dispositivo.</p></div></div>
+    <div class="pagehead"><div><div class="eyebrow">Cuenta y copia</div><h1>Ajustes y copia de seguridad</h1><p>Tus datos se guardan en la nube y se sincronizan entre tus dispositivos, con una copia local como caché sin conexión.</p></div></div>
+    ${installPromptEvent ? `<div class="card">
+      <h3 style="margin-top:0">Instalar la app</h3>
+      <p style="color:var(--ink-soft);font-size:13.5px">Instálala en tu móvil u ordenador para abrirla como una app, con icono propio y a pantalla completa.</p>
+      <button class="btn primary" onclick="installApp()">📲 Instalar Planos</button>
+    </div>`:''}
     <div class="card">
       <h3 style="margin-top:0">Copia de seguridad</h3>
-      <p style="color:var(--ink-soft);font-size:13.5px">Exporta todos tus proyectos y materiales a un archivo. Puedes importarlo en otro dispositivo para tener la misma información.</p>
+      <p style="color:var(--ink-soft);font-size:13.5px">Exporta todos tus proyectos y materiales a un archivo (independiente de la nube, útil como copia extra o para pasar los datos a otra cuenta). Importar un archivo reemplaza los datos actuales.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" onclick="exportBackup()">Exportar copia (.json)</button>
         <label class="btn">Importar copia<input type="file" accept="application/json" style="display:none" onchange="importBackup(this.files[0])"></label>
@@ -2909,7 +2992,7 @@ function viewSettings(){
     </div>
     <div class="card">
       <h3 style="margin-top:0;color:var(--brick)">Zona de riesgo</h3>
-      <p style="color:var(--ink-soft);font-size:13.5px">Elimina todos los proyectos y materiales de este dispositivo.</p>
+      <p style="color:var(--ink-soft);font-size:13.5px">Elimina todos los proyectos y materiales, también de la nube.</p>
       <button class="btn danger" onclick="wipeAll()">${ICONS.trash} Borrar todos los datos</button>
     </div>
   `;
@@ -2924,13 +3007,18 @@ function exportBackup(){
 }
 function importBackup(file){
   if(!file) return;
+  if(!confirm('Esto reemplazará todos tus proyectos y materiales actuales (también en la nube) por los del archivo. ¿Continuar?')) return;
   const r = new FileReader();
   r.onload = ()=>{
     try{
       const data = JSON.parse(r.result);
       if(!data.projects) throw new Error('formato inválido');
-      DB = Object.assign(defaultDB(), data); save(); applyTheme();
-      toast('Copia importada correctamente'); route();
+      DB = Object.assign(defaultDB(), data);
+      // Igual que al iniciar sesión: rellena campos que puedan faltar si la
+      // copia es de una versión anterior de la app (fases, plantas, etc.)
+      DB.projects.forEach(migrateProject);
+      save(); applyTheme();
+      toast('Copia importada y sincronizada con la nube'); route();
     }catch(e){ alert('El archivo no es una copia válida.'); }
   };
   r.readAsText(file);
@@ -3055,6 +3143,27 @@ function exportProjectPDF(id){
   `;
   document.getElementById('print-root').innerHTML = html;
   setTimeout(()=>window.print(), 60);
+}
+
+/* ---------------- PWA: instalación y service worker ---------------- */
+let installPromptEvent = null;
+window.addEventListener('beforeinstallprompt', (e)=>{
+  e.preventDefault();
+  installPromptEvent = e;
+  // Si el usuario ya está en Ajustes, refresca para mostrar el botón de instalar.
+  if(getToken() && location.hash === '#/settings') route();
+});
+async function installApp(){
+  if(!installPromptEvent) return;
+  installPromptEvent.prompt();
+  await installPromptEvent.userChoice;
+  installPromptEvent = null;
+  route();
+}
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('/sw.js').catch(e=>console.warn('No se pudo registrar el service worker', e));
+  });
 }
 
 /* ---------------- INIT ---------------- */

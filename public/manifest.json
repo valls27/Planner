@@ -1,0 +1,17 @@
+{
+  "name": "Planos — Planificador de vivienda",
+  "short_name": "Planos",
+  "description": "Planifica, presupuesta y sigue la reforma o construcción de tu vivienda.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#F6F4EE",
+  "theme_color": "#1463D6",
+  "lang": "es",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
