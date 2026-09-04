@@ -235,6 +235,24 @@ textarea{resize:vertical;min-height:70px}
 .timeline::before{content:'';position:absolute;left:6px;top:4px;bottom:4px;width:2px;background:var(--line)}
 .tl-item{position:relative;margin-bottom:16px}
 .tl-item::before{content:'';position:absolute;left:-22px;top:3px;width:12px;height:12px;border-radius:50%;background:var(--dot-bg, var(--surface));border:2px solid var(--dot-border, var(--blue))}
+.dep-chip{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 7px;border-radius:20px;background:var(--surface-2);color:var(--ink-soft);border:1px solid var(--line)}
+.dep-chip.warn{background:var(--brick-soft, rgba(228,58,30,.12));color:var(--brick);border-color:var(--brick)}
+
+/* --- Gantt --- */
+.gantt-wrap{position:relative;overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+.gantt-row{display:flex;border-bottom:1px solid var(--line);min-height:34px}
+.gantt-row:last-child{border-bottom:none}
+.gantt-row.head{background:var(--surface-2);position:sticky;top:0;z-index:2;min-height:26px}
+.gantt-label{flex:0 0 170px;width:170px;position:sticky;left:0;background:var(--surface);padding:6px 10px;font-size:11.5px;border-right:1px solid var(--line);z-index:1;display:flex;flex-direction:column;justify-content:center;gap:2px}
+.gantt-row.head .gantt-label{background:var(--surface-2)}
+.gantt-track{position:relative;flex-shrink:0}
+.gantt-bar{position:absolute;top:6px;height:22px;border-radius:6px;font-size:10.5px;color:#fff;display:flex;align-items:center;padding:0 6px;white-space:nowrap;overflow:hidden;cursor:default;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.gantt-bar.warn{outline:2px solid var(--brick);outline-offset:1px}
+.gantt-month{position:absolute;top:0;bottom:0;border-left:1px solid var(--line);font-size:10.5px;color:var(--ink-soft);padding:4px 0 0 5px;white-space:nowrap}
+.gantt-nodates{position:absolute;left:8px;top:8px;margin:0;font-size:11.5px;color:var(--ink-soft);font-style:italic}
+.dep-check-list{max-height:160px;overflow-y:auto;border:1px solid var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.dep-check-list label{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:400}
+.dep-check-list label input{width:auto}
 
 .item-actions{display:inline-flex;gap:4px;align-items:center;flex-shrink:0}
 .prio-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;flex-shrink:0}
@@ -2479,49 +2497,138 @@ const PHASE_COLORS = {
   'En proceso': {bg:'var(--amber-soft)', fg:'var(--amber)', dot:'var(--amber)'},
   'Terminado': {bg:'var(--green-soft)', fg:'var(--green)', dot:'var(--green)'}
 };
+// Vista elegida (lista o Gantt) por proyecto, en memoria — no hace falta guardarla
+const cronoViewState = {};
+function getCronoView(pid, p){
+  if(cronoViewState[pid]) return cronoViewState[pid];
+  // Si todavía no hay ninguna fase con fecha de inicio y fin, empezamos
+  // en la vista de Lista: el Gantt no puede dibujar nada y dejaría la
+  // pantalla en blanco justo cuando el usuario acaba de crear sus fases.
+  const hayFechas = p && (p.timeline||[]).some(t=>t.start && t.end);
+  return hayFechas ? 'gantt' : 'list';
+}
+function setCronoView(pid, view){ cronoViewState[pid] = view; refreshTab(getProject(pid)); }
+// Fases de las que depende t, y cuáles de ellas aún no están "Terminado"
+function phaseDeps(p, t){ return (t.dependsOn||[]).map(id=>p.timeline.find(x=>x.id===id)).filter(Boolean); }
+function unmetDeps(p, t){ return phaseDeps(p, t).filter(d=>d.status!=='Terminado'); }
 function tabCronograma(p){
+  const view = getCronoView(p.id, p);
   return `
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <h3 style="margin:0">Cronograma de ejecución</h3>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${p.timeline.length===0?`<button class="btn sm" onclick="loadDefaultTimeline('${p.id}')">Usar fases habituales</button>`:''}
           <button class="btn sm" onclick="addPhase('${p.id}')">${ICONS.plus}Añadir fase</button>
         </div>
       </div>
-      ${p.timeline.length? `<div class="timeline">${p.timeline.map(t=>{
-        const c = PHASE_COLORS[t.status] || PHASE_COLORS['Pendiente'];
-        return `
-        <div class="tl-item" style="--dot-bg:${c.dot};--dot-border:${c.dot}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
-            <div>
-              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-                <b>${escapeHtml(t.phase)}</b>
-                <span class="status-chip" style="background:${c.bg};color:${c.fg}">${t.status}</span>
-              </div>
-              <div style="font-size:12px;color:var(--ink-soft);margin-top:3px">${t.start||'?'} → ${t.end||'?'} ${t.cost?'· '+fmtMoney(t.cost):''}</div>
-            </div>
-            <div style="display:flex;gap:6px;align-items:center">
-              <select onchange="updatePhase('${p.id}','${t.id}','status',this.value)" style="font-size:11px;padding:4px 6px">
-                ${['Pendiente','En proceso','Terminado'].map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}
-              </select>
-              <button class="icon-btn" onclick="addPhase('${p.id}','${t.id}')">${ICONS.edit}</button>
-              <button class="icon-btn danger-hover" onclick="removePhase('${p.id}','${t.id}')">${ICONS.trash}</button>
-            </div>
-          </div>
-        </div>`;
-      }).join('')}</div>` : '<p style="color:var(--ink-soft);font-size:13px">Sin fases todavía.</p>'}
+      <div class="tabs" style="margin-bottom:14px">
+        <button class="${view==='gantt'?'active':''}" onclick="setCronoView('${p.id}','gantt')">📊 Gantt</button>
+        <button class="${view==='list'?'active':''}" onclick="setCronoView('${p.id}','list')">📋 Lista</button>
+      </div>
+      ${!p.timeline.length ? '<p style="color:var(--ink-soft);font-size:13px">Sin fases todavía.</p>'
+        : view==='gantt' ? renderGanttChart(p) : renderTimelineList(p)}
     </div>
   `;
 }
+function renderTimelineList(p){
+  return `<div class="timeline">${p.timeline.map(t=>{
+    const c = PHASE_COLORS[t.status] || PHASE_COLORS['Pendiente'];
+    const deps = phaseDeps(p, t);
+    const unmet = unmetDeps(p, t);
+    const started = t.start && new Date(t.start) <= new Date();
+    return `
+    <div class="tl-item" style="--dot-bg:${c.dot};--dot-border:${c.dot}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+        <div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <b>${escapeHtml(t.phase)}</b>
+            <span class="status-chip" style="background:${c.bg};color:${c.fg}">${t.status}</span>
+          </div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:3px">${t.start||'?'} → ${t.end||'?'} ${t.cost?'· '+fmtMoney(t.cost):''}</div>
+          ${deps.length?`<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+            <span class="dep-chip ${unmet.length&&started?'warn':''}" title="${unmet.length?'Aún no terminada: '+unmet.map(d=>d.phase).join(', '):'Todas terminadas'}">🔗 Depende de: ${deps.map(d=>escapeHtml(d.phase)).join(', ')}${unmet.length&&started?' ⚠️':''}</span>
+          </div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <select onchange="updatePhase('${p.id}','${t.id}','status',this.value)" style="font-size:11px;padding:4px 6px">
+            ${['Pendiente','En proceso','Terminado'].map(s=>`<option ${t.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <button class="icon-btn" onclick="addPhase('${p.id}','${t.id}')">${ICONS.edit}</button>
+          <button class="icon-btn danger-hover" onclick="removePhase('${p.id}','${t.id}')">${ICONS.trash}</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
+}
+function renderGanttChart(p){
+  const items = p.timeline;
+  const dated = items.filter(t=>t.start && t.end);
+  if(!dated.length){
+    return `<p class="help" style="margin:0">Añade fecha de inicio y fin a alguna fase (botón ${'"'}Añadir fase${'"'} o el lápiz de cada una) para ver el diagrama de Gantt. Mientras tanto puedes usar la vista de lista.</p>`;
+  }
+  let rangeStart = new Date(Math.min(...dated.map(t=>+new Date(t.start))));
+  let rangeEnd = new Date(Math.max(...dated.map(t=>+new Date(t.end))));
+  rangeStart.setDate(rangeStart.getDate()-2);
+  rangeEnd.setDate(rangeEnd.getDate()+2);
+  const dayMs = 86400000;
+  const totalDays = Math.max(1, Math.round((rangeEnd-rangeStart)/dayMs));
+  const pxPerDay = Math.min(30, Math.max(3, Math.round(1500/totalDays)));
+  const totalWidth = totalDays*pxPerDay;
+  const dayOffset = d => Math.round((new Date(d)-rangeStart)/dayMs);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayOffset = dayOffset(today);
+  const months = [];
+  let cur = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1);
+  while(cur <= rangeEnd){
+    months.push({off: Math.max(0, dayOffset(cur)), label: cur.toLocaleDateString('es-ES',{month:'short',year:'numeric'})});
+    cur = new Date(cur.getFullYear(), cur.getMonth()+1, 1);
+  }
+  const rows = items.map(t=>{
+    const c = PHASE_COLORS[t.status] || PHASE_COLORS['Pendiente'];
+    const hasDates = !!(t.start && t.end);
+    const deps = phaseDeps(p, t);
+    const unmet = unmetDeps(p, t);
+    const warn = unmet.length && hasDates && new Date(t.start) <= today;
+    let bar = `<p class="gantt-nodates">Sin fechas</p>`;
+    if(hasDates){
+      const off = Math.max(0, dayOffset(t.start));
+      const dur = Math.max(1, Math.round((new Date(t.end)-new Date(t.start))/dayMs)+1);
+      const w = Math.max(16, dur*pxPerDay);
+      const title = `${t.phase} · ${t.start} → ${t.end}${deps.length?' · Depende de: '+deps.map(d=>d.phase).join(', '):''}${warn?' · ⚠️ empezó sin que sus dependencias estén terminadas':''}`;
+      bar = `<div class="gantt-bar ${warn?'warn':''}" style="left:${off*pxPerDay}px;width:${w}px;background:${c.dot}" title="${escapeHtml(title)}">${warn?'⚠️ ':''}${escapeHtml(t.phase)}</div>`;
+    }
+    return `<div class="gantt-row">
+      <div class="gantt-label">
+        <b style="font-size:11.5px">${escapeHtml(t.phase)}</b>
+        <span style="color:var(--ink-soft)">${t.status}${deps.length?` · 🔗×${deps.length}`:''}</span>
+      </div>
+      <div class="gantt-track" style="width:${totalWidth}px">${bar}</div>
+    </div>`;
+  }).join('');
+  const showTodayLine = todayOffset>=0 && todayOffset<=totalDays;
+  return `<div class="gantt-wrap">
+    <div class="gantt-row head">
+      <div class="gantt-label"></div>
+      <div class="gantt-track" style="width:${totalWidth}px">
+        ${months.map(m=>`<div class="gantt-month" style="left:${m.off*pxPerDay}px">${m.label}</div>`).join('')}
+      </div>
+    </div>
+    ${rows}
+    ${showTodayLine?`<div style="position:absolute;top:0;bottom:0;left:${170+todayOffset*pxPerDay}px;width:0;border-left:2px dashed var(--brick);z-index:3;pointer-events:none"></div>`:''}
+  </div>
+  <p class="help" style="margin:10px 0 0">La línea roja discontinua es hoy. Pasa el cursor por una barra para ver sus fechas y dependencias; ⚠️ significa que la fase ya empezó y alguna de sus dependencias todavía no está "Terminado".</p>`;
+}
 function loadDefaultTimeline(id){
   const p = getProject(id);
-  p.timeline = DEFAULT_PHASES.map(ph=>({id:uid(), phase:ph, start:'', end:'', cost:0, status:'Pendiente', notes:''}));
+  p.timeline = DEFAULT_PHASES.map(ph=>({id:uid(), phase:ph, start:'', end:'', cost:0, status:'Pendiente', notes:'', dependsOn:[]}));
   touchProject(p); refreshTab(p);
 }
 function addPhase(id, editId){
   const p = getProject(id);
   const t = editId ? p.timeline.find(x=>x.id===editId) : null;
+  const others = p.timeline.filter(x=>x.id!==editId);
+  const depsOf = t ? (t.dependsOn||[]) : [];
   openModal(`
     <h2>${t?'Editar fase':'Nueva fase'}</h2>
     <div class="field"><label>Nombre de la fase</label><input id="ph-name" value="${t?escapeHtml(t.phase):''}" placeholder="Ej. Electricidad"></div>
@@ -2530,14 +2637,21 @@ function addPhase(id, editId){
       <div class="field"><label>Fin</label><input id="ph-end" type="date" value="${t?t.end||'':''}"></div>
     </div>
     <div class="field"><label>Coste (€)</label><input id="ph-cost" type="number" value="${t?t.cost||0:0}"></div>
+    ${others.length?`<div class="field">
+      <label>Depende de (no debería empezar hasta que estén terminadas)</label>
+      <div class="dep-check-list">
+        ${others.map(o=>`<label><input type="checkbox" value="${o.id}" ${depsOf.includes(o.id)?'checked':''} class="dep-check">${escapeHtml(o.phase)} <span style="color:var(--ink-soft)">(${o.status})</span></label>`).join('')}
+      </div>
+    </div>`:''}
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="savePhase('${id}','${editId||''}')">Guardar</button></div>
   `, ()=>document.getElementById('ph-name').focus());
 }
 function savePhase(id, editId){
   const name = document.getElementById('ph-name').value.trim(); if(!name) return;
   const p = getProject(id);
+  const dependsOn = Array.from(document.querySelectorAll('.dep-check:checked')).map(el=>el.value);
   const vals = {phase:name, start:document.getElementById('ph-start').value, end:document.getElementById('ph-end').value,
-    cost:Number(document.getElementById('ph-cost').value)||0};
+    cost:Number(document.getElementById('ph-cost').value)||0, dependsOn};
   if(editId){
     const t = p.timeline.find(x=>x.id===editId); Object.assign(t, vals);
   } else {
@@ -2546,10 +2660,21 @@ function savePhase(id, editId){
   touchProject(p); closeModal(); refreshTab(p);
 }
 function updatePhase(id, tid, field, value){
-  const p = getProject(id); const t = p.timeline.find(t=>t.id===tid); t[field]=value; touchProject(p); refreshTab(p);
+  const p = getProject(id); const t = p.timeline.find(t=>t.id===tid);
+  if(field==='status' && value!=='Pendiente'){
+    const unmet = unmetDeps(p, t);
+    if(unmet.length && !confirm(`"${t.phase}" depende de ${unmet.map(d=>d.phase).join(', ')}, que todavía no ${unmet.length>1?'están':'está'} en "Terminado". ¿Marcar igualmente como "${value}"?`)){
+      refreshTab(p); return;
+    }
+  }
+  t[field]=value; touchProject(p); refreshTab(p);
 }
 function removePhase(id, tid){
-  const p = getProject(id); p.timeline = p.timeline.filter(t=>t.id!==tid); touchProject(p); refreshTab(p);
+  const p = getProject(id);
+  p.timeline = p.timeline.filter(t=>t.id!==tid);
+  // limpia referencias a la fase eliminada en las dependencias de las demás
+  p.timeline.forEach(t=>{ if(t.dependsOn) t.dependsOn = t.dependsOn.filter(d=>d!==tid); });
+  touchProject(p); refreshTab(p);
 }
 
 /* --- Documentos --- */
