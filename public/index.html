@@ -3343,8 +3343,7 @@ function buildFloorGroup3D(p, floor, scale){
     if(!r.points || r.points.length<3) return;
     const pts = r.points.map(pt=>({x:pt.x/scale, y:pt.y/scale}));
     group.add(extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc'));
-    // Bloque 2 (mobiliario en 3D) pendiente de activar:
-    // (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale)));
+    (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale)));
   });
   walls.forEach(w=>group.add(buildWallGroup3D(w, scale, floorHeight)));
   columns.forEach(c=>group.add(buildColumnMesh3D(c, scale, floorHeight)));
