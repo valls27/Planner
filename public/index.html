@@ -1496,11 +1496,16 @@ function tabPlano(p){
   const viewTabs = `
     <div class="tabs" style="margin-bottom:16px">
       <button class="${planState.viewMode==='2d'?'active':''}" onclick="setPlanViewMode('${p.id}','2d')">📐 2D</button>
-      <button class="${planState.viewMode==='3d'?'active':''}" onclick="setPlanViewMode('${p.id}','3d')">🧊 3D</button>
+      <button class="${planState.viewMode==='3d'?'active':''}" onclick="setPlanViewMode('${p.id}','3d')">🧊 3D interior</button>
+      <button class="${planState.viewMode==='exterior'?'active':''}" onclick="setPlanViewMode('${p.id}','exterior')">🏠 Exterior</button>
     </div>`;
   if(planState.viewMode==='3d'){
     setTimeout(()=>init3DInterior(p), 0);
     return viewTabs + render3DInteriorShell(p);
+  }
+  if(planState.viewMode==='exterior'){
+    setTimeout(()=>init3DExterior(p), 0);
+    return viewTabs + render3DExteriorShell(p);
   }
   setTimeout(()=>{ initPlanCanvas(p); renderFurnItems(); }, 0);
   return viewTabs + `
