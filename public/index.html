@@ -201,6 +201,10 @@ td.num,th.num{text-align:right;font-family:'IBM Plex Mono',monospace}
   linear-gradient(var(--bg-grid) 1px, transparent 1px), linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
   background-size:20px 20px; background-color: var(--surface); border:1px solid var(--line);border-radius:10px;overflow:auto;touch-action:none}
 .plan-side{width:230px;flex-shrink:0}
+.three-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.three-holder{width:100%;height:520px;min-height:340px;max-height:80vh;resize:vertical;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden;touch-action:none;position:relative}
+.three-holder canvas{display:block;width:100%!important;height:100%!important}
+.three-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--ink-soft);font-size:13.5px}
 @media (min-width:1000px){
   /* En escritorio sobra ancho a la derecha del plano: dejamos que el panel
      lateral crezca (hasta ~1/3 del hueco disponible) para poder mostrar las
@@ -475,8 +479,9 @@ function newProject(name){
     purchasePrice:0, maxBudget:0, description:'', notes:'',
     entradaPct:20, entradaMode:'preset', taxAuto:true, taxRate:8,
     budget, prosCons:[], tasks:[], timeline:[], rooms:[], walls:[], columns:[],
-    floors:[{id:uid(), name:'Planta baja'}],
+    floors:[{id:uid(), name:'Planta baja', heightM:2.6}],
     photos:[], documents:[], links:[], activity:[],
+    exterior:{roofType:'plana', wallColor:'#E4DFD3', roofColor:'#8A6A52'},
     createdAt: nowISO(), updatedAt: nowISO()
   };
 }
@@ -489,7 +494,9 @@ function migrateProject(p){
   if(p.entradaMode===undefined) p.entradaMode = 'preset';
   if(p.taxAuto===undefined) p.taxAuto = true;
   if(p.taxRate===undefined) p.taxRate = 8;
-  if(!p.floors || !p.floors.length) p.floors = [{id:uid(), name:'Planta baja'}];
+  if(!p.floors || !p.floors.length) p.floors = [{id:uid(), name:'Planta baja', heightM:2.6}];
+  p.floors.forEach(f=>{ if(!f.heightM) f.heightM = 2.6; });
+  if(!p.exterior) p.exterior = {roofType:'plana', wallColor:'#E4DFD3', roofColor:'#8A6A52'};
   const defaultFloorId = p.floors[0].id;
   (p.rooms||[]).forEach(r=>{
     if(!r.points){
@@ -777,6 +784,7 @@ function viewProject(id, tab){
 }
 
 function renderProjectTab(p, tab){
+  if(tab!=='plano') dispose3D();
   switch(tab){
     case 'resumen': return tabResumen(p);
     case 'presupuesto': return tabPresupuesto(p);
@@ -1099,6 +1107,7 @@ let planState = { selectedRoom:null, selectedFurn:null, selectedWall:null, selec
   currentFloor:null,
   splitWalls:new Set(),
   sidePanel:'rooms',
+  viewMode:'2d', view3DAllFloors:false,
   mousePos:null }; // scale px per meter
 const DOOR_PRESETS = [
   {label:'Puerta 62,5 cm', w:0.625},
@@ -1146,6 +1155,11 @@ function showFloorModal(pid, floorId){
       <input id="floor-name" list="floor-presets" value="${editing?escapeHtml(floor.name):''}" placeholder="Ej. Sótano, Planta baja, Planta 1ª...">
       <datalist id="floor-presets">${FLOOR_PRESETS.map(n=>`<option value="${escapeHtml(n)}">`).join('')}</datalist>
     </div>
+    <div class="field">
+      <label>Altura libre de esta planta (m)</label>
+      <input id="floor-height" type="number" step="0.05" min="2.0" max="5" value="${editing?floor.heightM:2.6}">
+      <p class="help" style="margin:4px 0 0">Se usa para la vista 3D y la volumetría exterior.</p>
+    </div>
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveFloorModal('${pid}',${editing?`'${floorId}'`:'null'})">${editing?'Guardar':'Añadir planta'}</button></div>
   `, ()=>document.getElementById('floor-name').focus());
 }
@@ -1153,10 +1167,11 @@ function saveFloorModal(pid, floorId){
   const p = getProject(pid);
   const name = (document.getElementById('floor-name').value||'').trim();
   if(!name) return;
+  const heightM = Math.max(2.0, Math.min(5, Number(document.getElementById('floor-height').value)||2.6));
   if(floorId){
-    const f = p.floors.find(f=>f.id===floorId); if(f) f.name = name;
+    const f = p.floors.find(f=>f.id===floorId); if(f){ f.name = name; f.heightM = heightM; }
   } else {
-    const nf = {id:uid(), name};
+    const nf = {id:uid(), name, heightM};
     p.floors.push(nf);
     planState.currentFloor = nf.id;
     planState.selectedRoom=null; planState.selectedFurn=null; planState.selectedWall=null; planState.selectedColumn=null;
@@ -1472,14 +1487,23 @@ function refreshPlanSide(p){
   if(side) side.innerHTML = renderPlanSideInner(p);
 }
 function tabPlano(p){
-  setTimeout(()=>{ initPlanCanvas(p); renderFurnItems(); }, 0);
   const floorId = currentFloorId(p);
   const modeHint = planState.drawMode ? 'Modo: dibujar espacio — toca cada esquina, cierra cerca del primer punto.'
     : planState.wallMode ? `Modo: dibujar ${WALL_TYPES[planState.wallType].label.toLowerCase()} — toca inicio y fin del muro (encadena varios, "Terminar" para salir).`
     : planState.columnMode ? 'Modo: columna — toca el plano para colocar una columna.'
     : 'Arrastra esquinas, muros o muebles para editarlos. Selecciona un elemento para ver sus medidas exactas.';
   const floorArea = roomsOnFloor(p).reduce((s,r)=>s+roomAreaM2(r),0);
-  return `
+  const viewTabs = `
+    <div class="tabs" style="margin-bottom:16px">
+      <button class="${planState.viewMode==='2d'?'active':''}" onclick="setPlanViewMode('${p.id}','2d')">📐 2D</button>
+      <button class="${planState.viewMode==='3d'?'active':''}" onclick="setPlanViewMode('${p.id}','3d')">🧊 3D</button>
+    </div>`;
+  if(planState.viewMode==='3d'){
+    setTimeout(()=>init3DInterior(p), 0);
+    return viewTabs + render3DInteriorShell(p);
+  }
+  setTimeout(()=>{ initPlanCanvas(p); renderFurnItems(); }, 0);
+  return viewTabs + `
     <div class="floor-tabs-row">
       <div class="tabs" style="margin-bottom:0;border-bottom:none;flex:1;flex-wrap:wrap">
         ${p.floors.map(f=>`<button class="${f.id===floorId?'active':''}" onclick="switchFloor('${p.id}','${f.id}')">${escapeHtml(f.name)}</button>`).join('')}
@@ -1823,6 +1847,11 @@ function drawWallOpenings(ctx, w, bgColor){
 }
 function bgColorForCanvas(){
   try{ const v=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(); return v||'#F6F4EE'; }catch(e){ return '#F6F4EE'; }
+}
+function setPlanViewMode(pid, mode){
+  dispose3D();
+  planState.viewMode = mode;
+  refreshTab(getProject(pid));
 }
 function zoomPlan(dir){
   planState.zoom = Math.max(0.4, Math.min(2.5, Math.round((planState.zoom + dir*0.15)*100)/100));
@@ -3143,6 +3172,390 @@ function exportProjectPDF(id){
   `;
   document.getElementById('print-root').innerHTML = html;
   setTimeout(()=>window.print(), 60);
+}
+
+/* ---------------- Vista 3D (interior y exterior) ---------------- */
+const DOOR_H_3D = 2.1, SILL_H_3D = 0.9, SLAB_H_3D = 0.03, ROOF_THICK_3D = 0.22;
+let threeLoadingPromise = null;
+function loadThreeJS(){
+  if(window.THREE && window.THREE.OrbitControls) return Promise.resolve();
+  if(threeLoadingPromise) return threeLoadingPromise;
+  threeLoadingPromise = new Promise((resolve, reject)=>{
+    const s1 = document.createElement('script');
+    s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    s1.onload = ()=>{
+      const s2 = document.createElement('script');
+      s2.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js';
+      s2.onload = ()=>resolve();
+      s2.onerror = ()=>{ threeLoadingPromise=null; reject(new Error('No se pudo cargar OrbitControls')); };
+      document.head.appendChild(s2);
+    };
+    s1.onerror = ()=>{ threeLoadingPromise=null; reject(new Error('No se pudo cargar Three.js')); };
+    document.head.appendChild(s1);
+  });
+  return threeLoadingPromise;
+}
+let active3D = null;
+function dispose3D(){
+  if(!active3D) return;
+  if(active3D.raf) cancelAnimationFrame(active3D.raf);
+  if(active3D.resizeObserver) active3D.resizeObserver.disconnect();
+  if(active3D.controls) active3D.controls.dispose();
+  if(active3D.renderer){
+    active3D.renderer.dispose();
+    const dom = active3D.renderer.domElement;
+    if(dom && dom.parentNode) dom.parentNode.removeChild(dom);
+  }
+  active3D = null;
+}
+// Segmenta un muro en tramos sólidos, dejando huecos de puertas y bandas de ventana.
+function wallSegments3D(lenM, openings, floorH){
+  const spans = (openings||[]).map(o=>{
+    const half = o.width/2, center = o.t*lenM;
+    return {type:o.type, s: Math.max(0, center-half), e: Math.min(lenM, center+half)};
+  }).filter(sp=>sp.e>sp.s).sort((a,b)=>a.s-b.s);
+  const cuts = new Set([0, lenM]);
+  spans.forEach(sp=>{ cuts.add(sp.s); cuts.add(sp.e); });
+  const xs = Array.from(cuts).sort((a,b)=>a-b);
+  const segs = [];
+  for(let i=0;i<xs.length-1;i++){
+    const x0=xs[i], x1=xs[i+1];
+    if(x1-x0 < 1e-6) continue;
+    const mid = (x0+x1)/2;
+    const covering = spans.find(sp=>mid>sp.s && mid<sp.e);
+    if(!covering){
+      segs.push({x0,x1,yFrom:0,yTo:floorH});
+    } else if(covering.type==='puerta'){
+      if(floorH > DOOR_H_3D) segs.push({x0,x1,yFrom:DOOR_H_3D,yTo:floorH});
+    } else {
+      segs.push({x0,x1,yFrom:0,yTo:SILL_H_3D});
+      if(floorH > DOOR_H_3D) segs.push({x0,x1,yFrom:DOOR_H_3D,yTo:floorH});
+    }
+  }
+  return segs;
+}
+function convexHull3D(points){
+  const pts = points.slice().sort((a,b)=> a.x===b.x ? a.y-b.y : a.x-b.x);
+  if(pts.length<=2) return pts;
+  const cross=(o,a,b)=>(a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x);
+  const lower=[];
+  for(const p of pts){
+    while(lower.length>=2 && cross(lower[lower.length-2],lower[lower.length-1],p)<=0) lower.pop();
+    lower.push(p);
+  }
+  const upper=[];
+  for(let i=pts.length-1;i>=0;i--){
+    const p=pts[i];
+    while(upper.length>=2 && cross(upper[upper.length-2],upper[upper.length-1],p)<=0) upper.pop();
+    upper.push(p);
+  }
+  upper.pop(); lower.pop();
+  return lower.concat(upper);
+}
+const FURN3D = {
+  'seat-long': {h:0.85, color:'#9C8770', shape:'box'},
+  'table':     {h:0.75, color:'#B08D57', shape:'box'},
+  'chair':     {h:0.85, color:'#8C7A6B', shape:'box'},
+  'flat':      {h:0.05, color:'#2B2E33', shape:'box', lift:1.1},
+  'storage':   {h:1.0,  color:'#C9BFAE', shape:'box'},
+  'shelf':     {h:1.8,  color:'#B08D57', shape:'box'},
+  'rug':       {h:0.02, color:'#C77B58', shape:'box'},
+  'round':     {h:0.9,  color:'#7C8B7A', shape:'cylinder'},
+  'counter':   {h:0.9,  color:'#D8D2C4', shape:'box'},
+  'storage-sm':{h:0.45, color:'#C9BFAE', shape:'box'},
+  'fridge':    {h:1.8,  color:'#DADFE3', shape:'box'},
+  'oven':      {h:0.6,  color:'#5B6166', shape:'box'},
+  'drum':      {h:0.85, color:'#E7EAEC', shape:'box'},
+  'bed':       {h:0.55, color:'#B7C4D6', shape:'box'},
+  'wardrobe':  {h:2.0,  color:'#B08D57', shape:'box'},
+  'drawers':   {h:0.8,  color:'#B08D57', shape:'box'},
+  'wc':        {h:0.4,  color:'#FFFFFF', shape:'box'},
+  'basin':     {h:0.85, color:'#FFFFFF', shape:'box'},
+  'shower':    {h:0.05, color:'#CFE3EA', shape:'box'},
+  'tub':       {h:0.55, color:'#FFFFFF', shape:'box'},
+  'mirror':    {h:0.05, color:'#BFD4E0', shape:'box'},
+  'plant':     {h:1.0,  color:'#4C7A4E', shape:'cylinder'},
+  'pool':      {h:0.15, color:'#3E9BC7', shape:'box'},
+  'default':   {h:0.6,  color:'#A9A296', shape:'box'}
+};
+function extrudeFootprint3D(pointsM, height, color, opacity){
+  const pts = pointsM.map(pt=>new THREE.Vector2(pt.x, -pt.y));
+  const shape = new THREE.Shape(pts);
+  const geo = new THREE.ExtrudeGeometry(shape, {depth:height, bevelEnabled:false});
+  geo.rotateX(-Math.PI/2);
+  const mat = new THREE.MeshStandardMaterial({color, roughness:0.9, transparent: opacity!==undefined, opacity: opacity!==undefined?opacity:1});
+  return new THREE.Mesh(geo, mat);
+}
+function buildWallGroup3D(wall, scale, floorHeight, colorOverride){
+  const a = {x:wall.a.x/scale, y:wall.a.y/scale};
+  const b = {x:wall.b.x/scale, y:wall.b.y/scale};
+  const dx=b.x-a.x, dz=b.y-a.y;
+  const len = Math.hypot(dx,dz);
+  const group = new THREE.Group();
+  if(len<1e-6) return group;
+  const angle = Math.atan2(dz,dx);
+  const thickness = wall.thickness||0.1;
+  const segs = wallSegments3D(len, wall.openings||[], floorHeight);
+  const wt = WALL_TYPES[wall.type]||{fill:'#C7CFD3'};
+  const mat = new THREE.MeshStandardMaterial({color: colorOverride||wt.fill, roughness:0.92});
+  segs.forEach(seg=>{
+    const segLen = seg.x1-seg.x0, segH = seg.yTo-seg.yFrom;
+    if(segLen<=0.001 || segH<=0.001) return;
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(segLen, segH, thickness), mat);
+    mesh.position.set((seg.x0+seg.x1)/2, seg.yFrom+segH/2, 0);
+    group.add(mesh);
+  });
+  group.rotation.y = -angle;
+  group.position.set(a.x, 0, a.y);
+  return group;
+}
+function buildColumnMesh3D(col, scale, floorHeight){
+  const wM = col.w/scale, hM = col.h/scale;
+  const mat = new THREE.MeshStandardMaterial({color:'#6B7378', roughness:0.9});
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(wM, floorHeight, hM), mat);
+  mesh.position.set(col.x/scale+wM/2, floorHeight/2, col.y/scale+hM/2);
+  return mesh;
+}
+function buildFurnitureMesh3D(item, scale){
+  const meta = FURN_META[item.label] || {fam:'default'};
+  const meta3d = FURN3D[meta.fam] || FURN3D.default;
+  const wM = Math.max(0.05, item.w/scale), hM = Math.max(0.05, item.h/scale);
+  const lift = meta3d.lift||0;
+  let geo;
+  if(meta3d.shape==='cylinder'){
+    const r = Math.min(wM,hM)/2;
+    geo = new THREE.CylinderGeometry(r, r, meta3d.h, 18);
+  } else {
+    geo = new THREE.BoxGeometry(wM, meta3d.h, hM);
+  }
+  const mat = new THREE.MeshStandardMaterial({color: meta3d.color, roughness:0.85});
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(item.x/scale+wM/2, SLAB_H_3D+lift+meta3d.h/2, item.y/scale+hM/2);
+  return mesh;
+}
+function buildFloorGroup3D(p, floor, scale){
+  const group = new THREE.Group();
+  const floorHeight = floor.heightM || 2.6;
+  const rooms = (p.rooms||[]).filter(r=>(r.floor||p.floors[0].id)===floor.id);
+  const walls = (p.walls||[]).filter(w=>(w.floor||p.floors[0].id)===floor.id);
+  const columns = (p.columns||[]).filter(c=>(c.floor||p.floors[0].id)===floor.id);
+  rooms.forEach(r=>{
+    if(!r.points || r.points.length<3) return;
+    const pts = r.points.map(pt=>({x:pt.x/scale, y:pt.y/scale}));
+    group.add(extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc'));
+    // Bloque 2 (mobiliario en 3D) pendiente de activar:
+    // (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale)));
+  });
+  walls.forEach(w=>group.add(buildWallGroup3D(w, scale, floorHeight)));
+  columns.forEach(c=>group.add(buildColumnMesh3D(c, scale, floorHeight)));
+  return {group, floorHeight};
+}
+function render3DInteriorShell(p){
+  return `
+    <div class="three-toolbar">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px">
+        <input type="checkbox" ${planState.view3DAllFloors?'checked':''} onchange="toggle3DAllFloors('${p.id}')"> Todas las plantas
+      </label>
+      <span class="help" style="margin:0">Arrastra para orbitar · rueda para acercar/alejar.</span>
+    </div>
+    <div class="three-holder" id="three3d-holder"></div>
+  `;
+}
+function toggle3DAllFloors(pid){
+  planState.view3DAllFloors = !planState.view3DAllFloors;
+  init3DInterior(getProject(pid));
+}
+async function init3DInterior(p){
+  const holder = document.getElementById('three3d-holder');
+  if(!holder) return;
+  dispose3D();
+  holder.innerHTML = '<div class="three-msg">Cargando visor 3D…</div>';
+  try{ await loadThreeJS(); }
+  catch(e){ holder.innerHTML = '<div class="three-msg">No se pudo cargar el visor 3D. Comprueba tu conexión e inténtalo de nuevo.</div>'; return; }
+  const holder2 = document.getElementById('three3d-holder');
+  if(!holder2) return; // el usuario navegó a otra pestaña mientras cargaba
+  holder2.innerHTML = '';
+  const scale = planState.scale;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xEFEFEA);
+  const w = holder2.clientWidth||600, h = holder2.clientHeight||480;
+  const camera = new THREE.PerspectiveCamera(50, w/h, 0.1, 500);
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  holder2.appendChild(renderer.domElement);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  scene.add(new THREE.AmbientLight(0xffffff,0.75));
+  const dir = new THREE.DirectionalLight(0xffffff,0.55); dir.position.set(6,12,8); scene.add(dir);
+
+  const floors = planState.view3DAllFloors ? p.floors : [p.floors.find(f=>f.id===currentFloorId(p))];
+  const group = new THREE.Group();
+  let elevation = 0;
+  floors.forEach(floor=>{
+    if(!floor) return;
+    const {group:fg, floorHeight} = buildFloorGroup3D(p, floor, scale);
+    fg.position.y = elevation;
+    group.add(fg);
+    elevation += floorHeight;
+  });
+  scene.add(group);
+
+  const box = new THREE.Box3().setFromObject(group);
+  const center = box.isEmpty() ? new THREE.Vector3(0,1,0) : box.getCenter(new THREE.Vector3());
+  const size = box.isEmpty() ? new THREE.Vector3(6,3,6) : box.getSize(new THREE.Vector3());
+  const maxSize = Math.max(size.x, size.y, size.z, 4);
+  camera.position.set(center.x+maxSize*0.9, center.y+maxSize*0.75, center.z+maxSize*0.9);
+  controls.target.copy(center);
+  controls.update();
+
+  active3D = {renderer, controls, resizeObserver:null, raf:null};
+  function animate(){ active3D.raf = requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera); }
+  animate();
+  const ro = new ResizeObserver(()=>{
+    const w2 = holder2.clientWidth||w, h2 = holder2.clientHeight||h;
+    if(w2<10||h2<10) return;
+    camera.aspect = w2/h2; camera.updateProjectionMatrix(); renderer.setSize(w2,h2);
+  });
+  ro.observe(holder2);
+  active3D.resizeObserver = ro;
+}
+function render3DExteriorShell(p){
+  const ext = p.exterior||{roofType:'plana', wallColor:'#E4DFD3', roofColor:'#8A6A52'};
+  const wallSwatches = ['#E4DFD3','#D8CFC0','#C9C2B4','#EDEDED','#DCC8A8','#C4B7A6'];
+  const roofSwatches = ['#8A6A52','#6E5642','#4A4A4A','#7A3B2E','#9C8B6F','#5A5F63'];
+  return `
+    <div class="three-toolbar" style="flex-wrap:wrap;gap:14px">
+      <div>
+        <span class="help" style="margin:0 8px 0 0">Tejado</span>
+        <select onchange="updateExteriorSetting('${p.id}','roofType',this.value)" style="width:auto;display:inline-block">
+          <option value="plana" ${ext.roofType==='plana'?'selected':''}>Plana</option>
+          <option value="a_dos_aguas" ${ext.roofType==='a_dos_aguas'?'selected':''}>A dos aguas</option>
+        </select>
+      </div>
+      <div>
+        <span class="help" style="margin:0 6px 0 0">Fachada</span>
+        ${wallSwatches.map(c=>`<button type="button" class="swatch" style="background:${c};border:2px solid ${c===ext.wallColor?'var(--ink)':'transparent'}" onclick="updateExteriorSetting('${p.id}','wallColor','${c}')"></button>`).join(' ')}
+      </div>
+      <div>
+        <span class="help" style="margin:0 6px 0 0">Tejado (color)</span>
+        ${roofSwatches.map(c=>`<button type="button" class="swatch" style="background:${c};border:2px solid ${c===ext.roofColor?'var(--ink)':'transparent'}" onclick="updateExteriorSetting('${p.id}','roofColor','${c}')"></button>`).join(' ')}
+      </div>
+    </div>
+    <p class="help" style="margin:6px 0 10px">Volumetría orientativa a partir de tu plano: forma general, alturas por planta y tejado. No representa ventanas, materiales reales ni detalles de fachada.</p>
+    <div class="three-holder" id="three3d-holder-ext"></div>
+  `;
+}
+function updateExteriorSetting(pid, field, value){
+  const p = getProject(pid);
+  if(!p.exterior) p.exterior = {roofType:'plana', wallColor:'#E4DFD3', roofColor:'#8A6A52'};
+  p.exterior[field] = value;
+  touchProject(p);
+  refreshTab(p);
+}
+function buildGableRoof3D(minX,maxX,minZ,maxZ,eaveY,ridgeH,color){
+  const ridgeAlongX = (maxX-minX) >= (maxZ-minZ);
+  const midZ=(minZ+maxZ)/2, midX=(minX+maxX)/2;
+  const ridgeY = eaveY+ridgeH;
+  let A,B,C,D,R1,R2;
+  if(ridgeAlongX){
+    A=[minX,eaveY,minZ]; B=[maxX,eaveY,minZ]; C=[maxX,eaveY,maxZ]; D=[minX,eaveY,maxZ];
+    R1=[minX,ridgeY,midZ]; R2=[maxX,ridgeY,midZ];
+  } else {
+    A=[minX,eaveY,minZ]; B=[minX,eaveY,maxZ]; C=[maxX,eaveY,maxZ]; D=[maxX,eaveY,minZ];
+    R1=[midX,ridgeY,minZ]; R2=[midX,ridgeY,maxZ];
+  }
+  const tris = [
+    A,B,R2, A,R2,R1,   // faldon 1
+    D,C,R2, D,R2,R1,   // faldon 2 (opuesto)
+    A,D,R1,            // hastial 1 (triangulo)
+    B,C,R2             // hastial 2 (triangulo)
+  ];
+  const positions = new Float32Array(tris.flat());
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions,3));
+  geo.computeVertexNormals();
+  const mat = new THREE.MeshStandardMaterial({color, roughness:0.85, side:THREE.DoubleSide});
+  return new THREE.Mesh(geo, mat);
+}
+async function init3DExterior(p){
+  const holder = document.getElementById('three3d-holder-ext');
+  if(!holder) return;
+  dispose3D();
+  holder.innerHTML = '<div class="three-msg">Cargando visor 3D…</div>';
+  try{ await loadThreeJS(); }
+  catch(e){ holder.innerHTML = '<div class="three-msg">No se pudo cargar el visor 3D. Comprueba tu conexión e inténtalo de nuevo.</div>'; return; }
+  const holder2 = document.getElementById('three3d-holder-ext');
+  if(!holder2) return;
+  holder2.innerHTML = '';
+  const scale = planState.scale;
+  const ext = p.exterior||{roofType:'plana', wallColor:'#E4DFD3', roofColor:'#8A6A52'};
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xCFE0EC);
+  const w = holder2.clientWidth||600, h = holder2.clientHeight||480;
+  const camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 800);
+  const renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(w,h); renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  holder2.appendChild(renderer.domElement);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  scene.add(new THREE.AmbientLight(0xffffff,0.8));
+  const dir = new THREE.DirectionalLight(0xffffff,0.65); dir.position.set(8,14,10); scene.add(dir);
+  // suelo de referencia
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(60,60), new THREE.MeshStandardMaterial({color:0xDCE7D6, roughness:1}));
+  ground.rotation.x = -Math.PI/2; ground.position.y = -0.02;
+  scene.add(ground);
+
+  const group = new THREE.Group();
+  let elevation = 0, lastHull = null, lastElevTop = 0;
+  p.floors.forEach(floor=>{
+    const fh = floor.heightM||2.6;
+    const pts = [];
+    (p.rooms||[]).filter(r=>(r.floor||p.floors[0].id)===floor.id).forEach(r=>r.points.forEach(pt=>pts.push({x:pt.x/scale,y:pt.y/scale})));
+    (p.walls||[]).filter(wl=>(wl.floor||p.floors[0].id)===floor.id).forEach(wl=>{ pts.push({x:wl.a.x/scale,y:wl.a.y/scale}); pts.push({x:wl.b.x/scale,y:wl.b.y/scale}); });
+    if(pts.length>=3){
+      const hull = convexHull3D(pts);
+      if(hull.length>=3){
+        const vol = extrudeFootprint3D(hull, fh, ext.wallColor);
+        vol.position.y = elevation;
+        group.add(vol);
+        lastHull = hull; lastElevTop = elevation+fh;
+      }
+    }
+    elevation += fh;
+  });
+  if(lastHull){
+    const xs = lastHull.map(pt=>pt.x), zs = lastHull.map(pt=>pt.y);
+    const minX=Math.min(...xs), maxX=Math.max(...xs), minZ=Math.min(...zs), maxZ=Math.max(...zs);
+    if(ext.roofType==='a_dos_aguas'){
+      const span = Math.min(maxX-minX, maxZ-minZ);
+      const ridgeH = Math.max(0.8, Math.min(2.2, span*0.35));
+      group.add(buildGableRoof3D(minX,maxX,minZ,maxZ,lastElevTop,ridgeH,ext.roofColor));
+    } else {
+      const roofSlab = extrudeFootprint3D(lastHull, ROOF_THICK_3D, ext.roofColor);
+      roofSlab.position.y = lastElevTop;
+      group.add(roofSlab);
+    }
+  }
+  scene.add(group);
+
+  const box = new THREE.Box3().setFromObject(group);
+  const center = box.isEmpty() ? new THREE.Vector3(0,1,0) : box.getCenter(new THREE.Vector3());
+  const size = box.isEmpty() ? new THREE.Vector3(8,4,8) : box.getSize(new THREE.Vector3());
+  const maxSize = Math.max(size.x, size.y, size.z, 6);
+  camera.position.set(center.x+maxSize*1.1, center.y+maxSize*0.9, center.z+maxSize*1.1);
+  controls.target.copy(center);
+  controls.update();
+
+  active3D = {renderer, controls, resizeObserver:null, raf:null};
+  function animate(){ active3D.raf = requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera); }
+  animate();
+  const ro = new ResizeObserver(()=>{
+    const w2 = holder2.clientWidth||w, h2 = holder2.clientHeight||h;
+    if(w2<10||h2<10) return;
+    camera.aspect = w2/h2; camera.updateProjectionMatrix(); renderer.setSize(w2,h2);
+  });
+  ro.observe(holder2);
+  active3D.resizeObserver = ro;
 }
 
 /* ---------------- PWA: instalación y service worker ---------------- */
