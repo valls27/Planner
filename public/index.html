@@ -1438,6 +1438,58 @@ function showPlanHelp(){
         <h3 style="margin:0 0 4px;font-size:14px">Referencias del plano</h3>
         <p class="help" style="margin:0">Los números junto a cada línea son las medidas reales en metros. La barra de abajo a la izquierda equivale a 1 metro, y la "N" de arriba a la derecha marca el norte de referencia.</p>
       </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Ver esto en 3D</h3>
+        <p class="help" style="margin:0">Con la estructura dibujada aquí, las pestañas <b>🧊 3D interior</b> y <b>🏠 Exterior</b> (arriba del todo) generan automáticamente el volumen y hasta un tejado — no hace falta dibujar nada más. Cada una tiene su propia ayuda "?".</p>
+      </div>
+    </div>
+    <button class="btn primary" style="width:100%;margin-top:16px" onclick="closeModal()">Entendido</button>
+  `);
+}
+function show3DHelp(){
+  openModal(`
+    <h2 style="margin-top:0">Vista 3D interior</h2>
+    <div style="display:grid;gap:14px;margin-top:12px">
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Se genera sola</h3>
+        <p class="help" style="margin:0">Este 3D no se dibuja aparte: coge exactamente lo que tienes en la pestaña 2D (muros, huecos de puertas y ventanas, columnas, habitaciones y mobiliario) y lo levanta en volumen. Cualquier cambio que hagas en el 2D se refleja aquí solo con volver a esta pestaña.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Moverte por la escena</h3>
+        <p class="help" style="margin:0">Arrastra para orbitar alrededor, y usa la rueda del ratón (o pellizca en el móvil) para acercar o alejar.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Todas las plantas</h3>
+        <p class="help" style="margin:0">Actívalo para ver el edificio completo apilado, con la altura real de cada planta (la que pusiste al crearla o renombrarla). Desactivado, solo ves la planta en la que estabas en el 2D.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Sobre el mobiliario</h3>
+        <p class="help" style="margin:0">Cada mueble sale con una altura aproximada típica de su tipo (una cama, un armario, una mesa...); no son modelos exactos ni con detalle de diseño, solo una referencia de volumen para hacerte una idea del espacio.</p>
+      </div>
+    </div>
+    <button class="btn primary" style="width:100%;margin-top:16px" onclick="closeModal()">Entendido</button>
+  `);
+}
+function showExteriorHelp(){
+  openModal(`
+    <h2 style="margin-top:0">Vista exterior (volumetría)</h2>
+    <div style="display:grid;gap:14px;margin-top:12px">
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">¿Cómo se añade el tejado?</h3>
+        <p class="help" style="margin:0">No se dibuja: se genera solo a partir del contorno de tu planta más alta. Elige el tipo con el desplegable de arriba — <b>Plana</b> o <b>A dos aguas</b> — y aparece al momento sobre el volumen.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">De dónde sale la forma</h3>
+        <p class="help" style="margin:0">Por cada planta, se calcula el contorno que envuelve tus habitaciones y muros, y se apilan una encima de otra con la altura real de cada una (la que pusiste al crear/renombrar la planta).</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Colores</h3>
+        <p class="help" style="margin:0">Las muestras de "Fachada" y "Tejado (color)" cambian el color de cada parte; se guardan con el proyecto.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Qué NO es esto</h3>
+        <p class="help" style="margin:0">Es una volumetría orientativa: forma general, alturas y tejado. No dibuja ventanas, puertas de fachada, materiales reales ni detalles — para eso está pensada la vista 2D y el 3D interior.</p>
+      </div>
     </div>
     <button class="btn primary" style="width:100%;margin-top:16px" onclick="closeModal()">Entendido</button>
   `);
@@ -3278,10 +3330,180 @@ const FURN3D = {
   'basin':     {h:0.85, color:'#FFFFFF', shape:'box'},
   'shower':    {h:0.05, color:'#CFE3EA', shape:'box'},
   'tub':       {h:0.55, color:'#FFFFFF', shape:'box'},
-  'mirror':    {h:0.05, color:'#BFD4E0', shape:'box'},
+  'mirror':    {h:0.05, color:'#BFD4E0', shape:'box', lift:1.0},
   'plant':     {h:1.0,  color:'#4C7A4E', shape:'cylinder'},
   'pool':      {h:0.15, color:'#3E9BC7', shape:'box'},
   'default':   {h:0.6,  color:'#A9A296', shape:'box'}
+};
+/* Aclara (percent>0) u oscurece (percent<0) un color hex, para dar variación de tonos
+   (patas, tiradores, costuras...) a partir del color base de cada mueble */
+function shadeColor(hex, percent){
+  hex = String(hex||'#A9A296').replace('#','');
+  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
+  const num = parseInt(hex,16)||0;
+  const clamp = v=>Math.max(0,Math.min(255,v));
+  const r = clamp((num>>16) + Math.round(255*percent));
+  const g = clamp(((num>>8)&0xFF) + Math.round(255*percent));
+  const b = clamp((num&0xFF) + Math.round(255*percent));
+  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+/* Añade una caja al grupo. cx,cy,cz = centro de la caja (cy = altura desde el suelo) */
+function addBox3D(group, w,h,d, cx,cy,cz, color, rough){
+  const geo = new THREE.BoxGeometry(Math.max(0.01,w), Math.max(0.01,h), Math.max(0.01,d));
+  const mat = new THREE.MeshStandardMaterial({color, roughness: rough==null?0.85:rough});
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(cx,cy,cz);
+  group.add(mesh);
+  return mesh;
+}
+/* Añade un cilindro (o tronco de cono si rt!=rb). rotX/rotZ permiten tumbarlo para
+   representar discos frontales (puertas de lavadora, duchas) en vez de solo tapas horizontales */
+function addCyl3D(group, rt,rb,h, cx,cy,cz, color, seg, rough, rotX, rotZ){
+  const geo = new THREE.CylinderGeometry(Math.max(0.005,rt), Math.max(0.005,rb), Math.max(0.01,h), seg||16);
+  const mat = new THREE.MeshStandardMaterial({color, roughness: rough==null?0.85:rough});
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(cx,cy,cz);
+  if(rotX) mesh.rotation.x = rotX;
+  if(rotZ) mesh.rotation.z = rotZ;
+  group.add(mesh);
+  return mesh;
+}
+/* Constructores 3D por familia: cada uno monta el mueble a partir de cajas y cilindros
+   simples (bajo poligonaje) pero con las piezas justas para reconocer qué es de un vistazo:
+   patas, respaldo y brazos en un sofá, cabecero y almohadas en una cama, tirador y puerta
+   en el horno, taza y cisterna en el WC, maceta y follaje en una planta, etc.
+   Convención de ejes locales: x = ancho (izq/dcha), z = profundidad (- = "arriba" del
+   plano 2D = respaldo/parte trasera del mueble, + = "abajo" del plano = frente), y = altura
+   desde el suelo. El grupo resultante se posiciona luego en buildFurnitureMesh3D. */
+const FURN_BUILDERS = {
+  'seat-long': (group,w,d,m)=>{ // Sofá: patas, asiento, respaldo, brazos y costuras de cojines
+    const seatH=Math.min(0.42,m.h*0.5), backH=m.h-seatH, legH=0.11, armW=Math.min(0.16,w*0.14);
+    const lx=w/2-armW*0.35, lz=d/2-0.06;
+    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addCyl3D(group,0.028,0.022,legH,x,legH/2,z,'#3E2E20',8));
+    addBox3D(group, Math.max(0.1,w-armW*2), seatH-legH, d*0.72, 0, legH+(seatH-legH)/2, d*0.06, m.color);
+    addBox3D(group, Math.max(0.1,w-armW*2), backH, d*0.22, 0, seatH+backH/2, -d/2+d*0.11, shadeColor(m.color,-0.06));
+    addBox3D(group, armW, seatH+backH*0.6-legH, d*0.86, -w/2+armW/2, legH+(seatH+backH*0.6-legH)/2, 0, shadeColor(m.color,-0.1));
+    addBox3D(group, armW, seatH+backH*0.6-legH, d*0.86, w/2-armW/2, legH+(seatH+backH*0.6-legH)/2, 0, shadeColor(m.color,-0.1));
+    const cushions=Math.max(2,Math.round(w/0.85));
+    for(let i=1;i<cushions;i++){
+      const cx=-w/2+armW+ (w-armW*2)/cushions*i;
+      addBox3D(group,0.015, seatH-legH-0.02, d*0.68, cx, legH+(seatH-legH)/2, d*0.06, shadeColor(m.color,-0.14));
+    }
+  },
+  'table': (group,w,d,m)=>{ // Mesa/escritorio: tablero + 4 patas
+    const topH=0.05, legT=0.05, legH=m.h-topH;
+    addBox3D(group,w,topH,d,0,m.h-topH/2,0,m.color);
+    const lx=w/2-legT*1.4, lz=d/2-legT*1.4;
+    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addBox3D(group,legT,legH,legT,x,legH/2,z,shadeColor(m.color,-0.18)));
+  },
+  'chair': (group,w,d,m)=>{ // Silla: asiento, respaldo, 4 patas
+    const seatH=m.h*0.5, backH=m.h-seatH, legT=0.035;
+    const lx=w/2-legT*1.3, lz=d/2-legT*1.3;
+    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addBox3D(group,legT,seatH,legT,x,seatH/2,z,'#4A3826'));
+    addBox3D(group,w,0.045,d,0,seatH,0,m.color);
+    addBox3D(group,w*0.92,backH,0.04,0,seatH+backH/2,-d/2+0.02,shadeColor(m.color,-0.06));
+  },
+  'flat': (group,w,d,m)=>{ // TV: marco + pantalla
+    addBox3D(group,w,m.h,d,0,0,0,'#181A1D');
+    addBox3D(group,w*0.94,m.h*0.5,0.008,0,0,d/2+0.005,'#0B141C');
+  },
+  'storage': (group,w,d,m)=>{ // Mueble bajo/alto, mueble TV: cuerpo + puertas + tiradores
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    const doors=Math.max(2,Math.round(w/0.55));
+    for(let i=1;i<doors;i++) addBox3D(group,0.008,m.h*0.92,0.008,-w/2+w/doors*i, m.h/2, d/2, shadeColor(m.color,-0.22));
+    for(let i=0;i<doors;i++){ const cx=-w/2+w/doors*(i+0.5)+w/doors*0.32; addCyl3D(group,0.01,0.01,0.09,cx,m.h*0.5,d/2+0.02,'#33383B',6,0.4); }
+  },
+  'shelf': (group,w,d,m)=>{ // Estantería: laterales + baldas
+    const t=0.03, shelves=4;
+    addBox3D(group,t,m.h,d,-w/2+t/2,m.h/2,0,m.color);
+    addBox3D(group,t,m.h,d,w/2-t/2,m.h/2,0,m.color);
+    for(let i=0;i<=shelves;i++) addBox3D(group,w,t*0.6,d,0,Math.min(m.h-t*0.3,i*(m.h/shelves)),0,m.color);
+  },
+  'rug': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color,1.0); },
+  'round': (group,w,d,m)=>{ // Lámpara de pie / barbacoa: base + cuerpo
+    const r=Math.min(w,d)/2;
+    addCyl3D(group,r*0.16,r*0.16,m.h*0.62,0,m.h*0.31,0,'#4A4A4A',10);
+    addCyl3D(group,r,r*0.82,m.h*0.38,0,m.h*0.62+m.h*0.19,0,m.color,16);
+  },
+  'counter': (group,w,d,m)=>{ // Encimera/isla: cuerpo bajo + tablero
+    addBox3D(group,w*0.97,m.h*0.86,d*0.97,0,(m.h*0.86)/2,0,shadeColor(m.color,-0.08));
+    addBox3D(group,w,m.h*0.14,d,0,m.h-m.h*0.07,0,shadeColor(m.color,0.05));
+  },
+  'storage-sm': (group,w,d,m)=>{ // Mesilla, microondas, mueble de baño: cuerpo + tirador
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    addCyl3D(group,0.01,0.01,w*0.18,0,m.h*0.62,d/2+0.02,'#33383B',6,0.4,0,Math.PI/2);
+  },
+  'fridge': (group,w,d,m)=>{ // Frigorífico: cuerpo + línea de puertas + 2 tiradores
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    addBox3D(group,w,0.015,0.02,0,m.h*0.62,d/2, shadeColor(m.color,-0.25));
+    addBox3D(group,0.03,0.16,0.02,w*0.32,m.h*0.76,d/2+0.01,'#8A8F93');
+    addBox3D(group,0.03,0.16,0.02,w*0.32,m.h*0.42,d/2+0.01,'#8A8F93');
+  },
+  'oven': (group,w,d,m)=>{ // Horno: cuerpo + ventanilla + panel de mandos
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    addBox3D(group,w*0.68,m.h*0.5,0.01,0,m.h*0.4,d/2+0.006,'#111417');
+    addBox3D(group,w*0.82,0.05,0.01,0,m.h*0.85,d/2+0.006,'#9AA0A4');
+  },
+  'drum': (group,w,d,m)=>{ // Lavadora/lavavajillas: cuerpo + puerta circular al frente
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    const r=Math.min(w,d)*0.34;
+    addCyl3D(group,r,r,0.02,0,m.h*0.48,d/2+0.011,'#2B2E33',18,0.4,Math.PI/2);
+    addCyl3D(group,r*0.8,r*0.8,0.005,0,m.h*0.48,d/2+0.022,'#AEB4B8',18,0.3,Math.PI/2);
+  },
+  'bed': (group,w,d,m)=>{ // Cama: somier bajo, colchón, cabecero y almohadas
+    const frameH=0.28, mattH=m.h-frameH;
+    addBox3D(group,w,frameH,d,0,frameH/2,0,'#B08D57');
+    addBox3D(group,w*0.98,mattH,d*0.98,0,frameH+mattH/2,0,m.color);
+    addBox3D(group,w,0.55,0.05,0,0.55/2+0.02,-d/2+0.02,shadeColor(m.color,-0.2));
+    addBox3D(group,w*0.42,0.12,d*0.24,-w*0.24,frameH+mattH+0.06,-d/2+d*0.16,'#F2EFEA');
+    addBox3D(group,w*0.42,0.12,d*0.24,w*0.24,frameH+mattH+0.06,-d/2+d*0.16,'#F2EFEA');
+  },
+  'wardrobe': (group,w,d,m)=>{ // Armario: cuerpo alto + puertas + tiradores
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    const doors=Math.max(2,Math.round(w/0.55));
+    for(let i=1;i<doors;i++) addBox3D(group,0.008,m.h*0.95,0.008,-w/2+w/doors*i, m.h/2, d/2, shadeColor(m.color,-0.25));
+    for(let i=0;i<doors;i++){ const cx=-w/2+w/doors*(i+0.5)+w/doors*0.34; addCyl3D(group,0.01,0.01,0.12,cx,m.h*0.5,d/2+0.02,'#33383B',6,0.4); }
+  },
+  'drawers': (group,w,d,m)=>{ // Cómoda: cajones apilados + tiradores
+    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
+    const rows=3;
+    for(let i=1;i<rows;i++) addBox3D(group,w,0.006,0.006,0,m.h/rows*i,d/2, shadeColor(m.color,-0.2));
+    for(let i=0;i<rows;i++) addCyl3D(group,0.012,0.012,w*0.22,0,m.h/rows*(i+0.5),d/2+0.02,'#33383B',6,0.4,0,Math.PI/2);
+  },
+  'wc': (group,w,d,m)=>{ // Inodoro: taza + cisterna
+    addBox3D(group,w*0.7,m.h*0.62,d*0.26,0,m.h-m.h*0.31,-d/2+d*0.13,'#FFFFFF',0.5);
+    addCyl3D(group,w*0.34,w*0.24,m.h*0.5,0,m.h*0.25,d*0.06,'#FFFFFF',20,0.5);
+    addCyl3D(group,w*0.22,w*0.22,0.02,0,m.h*0.5,d*0.06,'#EDEDED',20,0.5);
+  },
+  'basin': (group,w,d,m)=>{ // Lavabo: mueble/encimera + bacha
+    addBox3D(group,w,m.h*0.78,d*0.5,0,m.h*0.78/2,-d/4,m.color,0.5);
+    addCyl3D(group,Math.min(w,d)*0.34,Math.min(w,d)*0.3,m.h*0.16,0,m.h-m.h*0.08,0,'#FFFFFF',22,0.4);
+  },
+  'shower': (group,w,d,m)=>{ // Ducha: plato + columna con alcachofa
+    addBox3D(group,w,m.h+0.03,d,0,(m.h+0.03)/2,0,m.color,0.6);
+    const cx=w/2-0.06, cz=-d/2+0.06;
+    addCyl3D(group,0.018,0.018,2.0,cx,1.0,cz,'#B7BEC2',8,0.3);
+    addCyl3D(group,0.07,0.05,0.03,cx,1.95,cz+0.12,'#9AA0A4',16,0.3,Math.PI*0.35);
+  },
+  'tub': (group,w,d,m)=>{ // Bañera: carcasa exterior + hueco interior más oscuro
+    addBox3D(group,w,m.h,d,0,m.h/2,0,'#FFFFFF',0.4);
+    addBox3D(group,w*0.82,m.h*0.62,d*0.72,0,m.h*0.62/2+m.h*0.22,0,'#DCEBF2',0.35);
+  },
+  'mirror': (group,w,d,m)=>{ // Espejo de pared: marco + superficie reflectante
+    addBox3D(group,w,m.h+0.04,0.02,0,0,0,'#7A6B4F');
+    addBox3D(group,w*0.9,m.h*0.85+0.04*0.85,0.01,0,0,0.011,m.color,0.15);
+  },
+  'plant': (group,w,d,m)=>{ // Planta: maceta + follaje
+    const r=Math.min(w,d)/2;
+    addCyl3D(group,r*0.62,r*0.85,m.h*0.32,0,m.h*0.16,0,'#8B5A3C',14);
+    addCyl3D(group,r*0.02,r*0.5,m.h*0.5,0,m.h*0.32+m.h*0.25,0,shadeColor(m.color,-0.15),8);
+    addCyl3D(group,r*0.85,r*0.05,m.h*0.42,0,m.h*0.68,0,m.color,10);
+  },
+  'pool': (group,w,d,m)=>{ // Piscina: borde + vaso de agua recesado
+    addBox3D(group,w,m.h*0.4,d,0,m.h*0.4/2,0,'#D8D2C4',0.9);
+    addBox3D(group,w*0.9,m.h*0.7,d*0.9,0,m.h*0.7/2,0,m.color,0.25);
+  },
+  'default': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color); }
 };
 function extrudeFootprint3D(pointsM, height, color, opacity){
   const pts = pointsM.map(pt=>new THREE.Vector2(pt.x, -pt.y));
@@ -3326,17 +3548,12 @@ function buildFurnitureMesh3D(item, scale){
   const meta3d = FURN3D[meta.fam] || FURN3D.default;
   const wM = Math.max(0.05, item.w/scale), hM = Math.max(0.05, item.h/scale);
   const lift = meta3d.lift||0;
-  let geo;
-  if(meta3d.shape==='cylinder'){
-    const r = Math.min(wM,hM)/2;
-    geo = new THREE.CylinderGeometry(r, r, meta3d.h, 18);
-  } else {
-    geo = new THREE.BoxGeometry(wM, meta3d.h, hM);
-  }
-  const mat = new THREE.MeshStandardMaterial({color: meta3d.color, roughness:0.85});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(item.x/scale+wM/2, SLAB_H_3D+lift+meta3d.h/2, item.y/scale+hM/2);
-  return mesh;
+  const group = new THREE.Group();
+  const builder = FURN_BUILDERS[meta.fam] || FURN_BUILDERS.default;
+  try{ builder(group, wM, hM, meta3d); }
+  catch(e){ FURN_BUILDERS.default(group, wM, hM, meta3d); }
+  group.position.set(item.x/scale+wM/2, SLAB_H_3D+lift, item.y/scale+hM/2);
+  return group;
 }
 function buildFloorGroup3D(p, floor, scale){
   const group = new THREE.Group();
@@ -3360,6 +3577,7 @@ function render3DInteriorShell(p){
       <label style="display:flex;align-items:center;gap:6px;font-size:13px">
         <input type="checkbox" ${planState.view3DAllFloors?'checked':''} onchange="toggle3DAllFloors('${p.id}')"> Todas las plantas
       </label>
+      <button class="icon-btn" title="Cómo funciona la vista 3D" onclick="show3DHelp()">?</button>
       <span class="help" style="margin:0">Arrastra para orbitar · rueda para acercar/alejar.</span>
     </div>
     <div class="three-holder" id="three3d-holder"></div>
@@ -3429,6 +3647,7 @@ function render3DExteriorShell(p){
   const roofSwatches = ['#8A6A52','#6E5642','#4A4A4A','#7A3B2E','#9C8B6F','#5A5F63'];
   return `
     <div class="three-toolbar" style="flex-wrap:wrap;gap:14px">
+      <button class="icon-btn" title="Cómo funciona la vista exterior" onclick="showExteriorHelp()">?</button>
       <div>
         <span class="help" style="margin:0 8px 0 0">Tejado</span>
         <select onchange="updateExteriorSetting('${p.id}','roofType',this.value)" style="width:auto;display:inline-block">
