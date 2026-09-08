@@ -1056,6 +1056,7 @@ const FURN_CATALOG = [
   {cat:'Cocina', items:['Encimera','Muebles altos','Muebles bajos','Isla','Frigorífico','Horno','Lavavajillas','Lavadora','Microondas']},
   {cat:'Dormitorio', items:['Cama','Mesilla','Armario','Cómoda','Escritorio']},
   {cat:'Baño', items:['WC','Lavabo','Ducha','Bañera','Mueble de baño','Espejo']},
+  {cat:'Estructura', items:['Escalera']},
   {cat:'Exterior', items:['Mesa exterior','Sillas exterior','Barbacoa','Plantas','Piscina']}
 ];
 // Metadatos de cada mueble: familia visual + tamaño por defecto en metros
@@ -1092,7 +1093,8 @@ const FURN_META = {
   'Sillas exterior':{fam:'chair', w:0.45, h:0.45},
   'Barbacoa':{fam:'round', w:0.6, h:0.6},
   'Plantas':{fam:'plant', w:0.4, h:0.4},
-  'Piscina':{fam:'pool', w:4.0, h:2.5}
+  'Piscina':{fam:'pool', w:4.0, h:2.5},
+  'Escalera':{fam:'stairs', w:1.0, h:2.8}
 };
 const WALL_TYPES = {
   fina:        {label:'Pared fina',      thickness:0.07, color:'#9AA6AC', fill:'#C7CFD3'},
@@ -1100,7 +1102,7 @@ const WALL_TYPES = {
   carga:       {label:'Muro de carga',   thickness:0.30, color:'#1E2A2E', fill:'#3C4A4D'}
 };
 let planState = { selectedRoom:null, selectedFurn:null, selectedWall:null, selectedColumn:null, selectedOpening:null,
-  drag:null, scale:40, zoom:1,
+  drag:null, scale:40, zoom:1, panX:0, panY:0,
   drawMode:false, drawPoints:[],
   wallMode:false, wallType:'separatoria', wallStart:null,
   columnMode:false,
@@ -1295,13 +1297,40 @@ function findEdgeForPoint(polyPoints, pt, epsilon){
   }
   return best;
 }
+/* --- Geometría de mobiliario rotado: cada mueble guarda x,y,w,h como su rectángulo
+   "sin rotar" (igual que siempre) más un ángulo f.rot en grados que se aplica alrededor
+   de su propio centro, tanto al dibujarlo como al calcular colisiones de ratón. */
+function furnCenter(f){ return {x:f.x+f.w/2, y:f.y+f.h/2}; }
+/* Convierte una posición del canvas (mundo) al sistema de coordenadas propio del mueble
+   (deshace la rotación alrededor de su centro), para poder comparar contra x,y,w,h tal cual */
+function furnToLocal(pos, f){
+  if(!f.rot) return pos;
+  const c = furnCenter(f), rad=-f.rot*Math.PI/180;
+  const dx=pos.x-c.x, dy=pos.y-c.y, cos=Math.cos(rad), sin=Math.sin(rad);
+  return { x:c.x+dx*cos-dy*sin, y:c.y+dx*sin+dy*cos };
+}
+/* Convierte un punto local (relativo al rectángulo sin rotar) a coordenadas de mundo,
+   aplicando la rotación del mueble alrededor de su centro. Útil para dibujar el
+   tirador de redimensionar en su sitio real cuando el mueble está girado */
+function furnToWorld(pt, f){
+  if(!f.rot) return pt;
+  const c = furnCenter(f), rad=f.rot*Math.PI/180;
+  const dx=pt.x-c.x, dy=pt.y-c.y, cos=Math.cos(rad), sin=Math.sin(rad);
+  return { x:c.x+dx*cos-dy*sin, y:c.y+dx*sin+dy*cos };
+}
+function pointInFurnRect(pos, f){
+  const lp = furnToLocal(pos, f);
+  return lp.x>=f.x && lp.x<=f.x+f.w && lp.y>=f.y && lp.y<=f.y+f.h;
+}
 /* Dibuja un símbolo esquemático de mobiliario en planta (estilo plano de arquitecto) */
 function drawFurnitureSymbol(ctx, f){
   const meta = FURN_META[f.label] || {fam:'default'};
   const {x,y,w,h} = f;
   const sel = f.id===planState.selectedFurn;
   ctx.save();
-  ctx.translate(x,y);
+  ctx.translate(x+w/2,y+h/2);
+  if(f.rot) ctx.rotate(f.rot*Math.PI/180);
+  ctx.translate(-w/2,-h/2);
   const stroke = sel ? '#E43A1E' : '#4A5A5D';
   ctx.strokeStyle = stroke; ctx.fillStyle = '#FFFFFFE6'; ctx.lineWidth = sel?2:1.2;
   const rr = (x0,y0,ww,hh,r)=>{ r=Math.min(r,ww/2,hh/2); ctx.beginPath();
@@ -1400,6 +1429,16 @@ function drawFurnitureSymbol(ctx, f){
       ctx.strokeStyle='rgba(44,95,124,.4)';
       for(let i=1;i<4;i++){ const ly=(h/4)*i; ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(w-6,ly); ctx.stroke(); }
       break;
+    case 'stairs': { // escalera: peldaños + flecha de subida
+      ctx.fillStyle='#EFE8DA'; ctx.fillRect(0,0,w,h); ctx.strokeRect(0,0,w,h);
+      const nsteps = Math.max(4, Math.round(h/14));
+      ctx.strokeStyle='rgba(74,90,93,.55)'; ctx.lineWidth=1;
+      for(let i=1;i<nsteps;i++){ const ly=(h/nsteps)*i; ctx.beginPath(); ctx.moveTo(2,ly); ctx.lineTo(w-2,ly); ctx.stroke(); }
+      ctx.strokeStyle=stroke; ctx.lineWidth=sel?2:1.5;
+      ctx.beginPath(); ctx.moveTo(w/2,h-8); ctx.lineTo(w/2,10);
+      ctx.moveTo(w/2-6,20); ctx.lineTo(w/2,10); ctx.lineTo(w/2+6,20); ctx.stroke();
+      break;
+    }
     default:
       ctx.fillRect(0,0,w,h); ctx.strokeRect(0,0,w,h);
   }
@@ -1432,7 +1471,15 @@ function showPlanHelp(){
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Mobiliario</h3>
-        <p class="help" style="margin:0">Selecciona una habitación y añade muebles desde la pestaña "Mobiliario". Arrástralos para colocarlos, y usa la esquina inferior derecha de cada uno para cambiar su tamaño.</p>
+        <p class="help" style="margin:0">Selecciona una habitación y añade muebles desde la pestaña "Mobiliario". Arrástralos para colocarlos, y usa la esquina inferior derecha de cada uno para cambiar su tamaño. Para girarlo a cualquier ángulo (no solo 90°), usa los botones ⟲/⟳ (±15°) o escribe el grado exacto en el campo "°" junto al mueble — así puedes encajarlo contra una pared en diagonal o dejarlo "a tu manera".</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Escaleras</h3>
+        <p class="help" style="margin:0">Se añaden como un mueble más, desde la categoría "Estructura" → "Escalera". Se ven en el plano con sus peldaños y una flecha de subida, y en la vista 3D se levantan con la altura real de la planta, para que sepas de un vistazo qué zona del suelo ocupan y no es superficie útil.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Mover la vista del plano</h3>
+        <p class="help" style="margin:0"><b>Clic derecho (o mantener pulsado con dos dedos) y arrastrar</b> desplaza la vista del plano hacia donde quieras, sin tocar ningún elemento del diseño. Usa +/− o "Ajustar" en la barra superior para el zoom.</p>
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Referencias del plano</h3>
@@ -1464,7 +1511,11 @@ function show3DHelp(){
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Sobre el mobiliario</h3>
-        <p class="help" style="margin:0">Cada mueble sale con una altura aproximada típica de su tipo (una cama, un armario, una mesa...); no son modelos exactos ni con detalle de diseño, solo una referencia de volumen para hacerte una idea del espacio.</p>
+        <p class="help" style="margin:0">Cada mueble sale con una altura aproximada típica de su tipo (una cama, un armario, una mesa...); no son modelos exactos ni con detalle de diseño, solo una referencia de volumen para hacerte una idea del espacio. Si lo has girado en el plano 2D (a 90°, 15°, o cualquier ángulo libre), aquí sale con esa misma orientación.</p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 4px;font-size:14px">Escaleras</h3>
+        <p class="help" style="margin:0">Si has añadido una "Escalera" desde Mobiliario → Estructura, aquí sube con la altura real de esa planta (no una altura genérica), para que veas bien el hueco que deja en el suelo hacia la planta siguiente.</p>
       </div>
     </div>
     <button class="btn primary" style="width:100%;margin-top:16px" onclick="closeModal()">Entendido</button>
@@ -1584,7 +1635,7 @@ function tabPlano(p){
         <div class="plan-canvas-holder">
           <canvas id="planCanvas" width="700" height="480" style="display:block;width:100%;height:100%"></canvas>
         </div>
-        <p class="help" style="margin-top:8px">Arrastra la esquina inferior derecha del recuadro para hacer el plano más alto, o usa +/− para alejar y ver más superficie a la vez. Superficie de esta planta: <b>${fmtM2(floorArea)}</b> · Superficie total vivienda: <b>${fmtM2(totalArea(p))}</b> · Coste mobiliario: <b>${fmtMoney(furnitureTotal(p))}</b></p>
+        <p class="help" style="margin-top:8px">Arrastra la esquina inferior derecha del recuadro para hacer el plano más alto, o usa +/− para alejar y ver más superficie a la vez. <b>Clic derecho + arrastrar</b> mueve la vista del plano (paneo) sin tocar nada del diseño. Superficie de esta planta: <b>${fmtM2(floorArea)}</b> · Superficie total vivienda: <b>${fmtM2(totalArea(p))}</b> · Coste mobiliario: <b>${fmtMoney(furnitureTotal(p))}</b></p>
       </div>
       <div class="plan-side" id="planSideInner">${renderPlanSideInner(p)}</div>
     </div>
@@ -1916,6 +1967,7 @@ function zoomPlan(dir){
   const z=document.querySelector('.plan-toolbar .mono'); if(z) z.textContent = Math.round(planState.zoom*100)+'%';
 }
 function zoomPlanReset(){
+  planState.panX = 0; planState.panY = 0;
   const p = currentProjectFromHash();
   const canvas = document.getElementById('planCanvas');
   const pts = [];
@@ -2031,7 +2083,7 @@ function renderFurnPanel(p){
       <button class="btn sm" style="width:100%" onclick="addCustomFurniture('${p.id}')">${ICONS.plus} Añadir a medida</button>
     </div>
     <h3 style="font-size:14px">En esta habitación</h3>
-    <p class="help" style="margin-top:0">Toca un mueble en el plano y arrastra su esquina para redimensionarlo, o ajusta cm aquí.</p>
+    <p class="help" style="margin-top:0">Toca un mueble en el plano y arrastra su esquina para redimensionarlo, o ajusta cm y grados aquí. También puedes girarlo directamente en el plano: mantenlo seleccionado y usa el campo "°" para dejarlo a cualquier ángulo, no solo a 90°.</p>
     <div>${(room.furniture||[]).map(f=>`
       <div class="furn-item" style="${planState.selectedFurn===f.id?'border-color:var(--blue)':''}" onclick="planState.selectedRoom='${room.id}';planState.selectedFurn='${f.id}';refreshTab(getProject('${p.id}'))">
         <span>${escapeHtml(f.label)}</span>
@@ -2039,12 +2091,29 @@ function renderFurnPanel(p){
           <input type="number" title="Ancho (cm)" value="${Math.round(f.w/planState.scale*100)}" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnSize('${p.id}','${room.id}','${f.id}','w',this.value)">
           <span style="font-size:11px;color:var(--ink-soft)">×</span>
           <input type="number" title="Fondo (cm)" value="${Math.round(f.h/planState.scale*100)}" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnSize('${p.id}','${room.id}','${f.id}','h',this.value)">
+          <button class="icon-btn" title="Girar 15° a la izquierda" onclick="event.stopPropagation();nudgeFurnRot('${p.id}','${room.id}','${f.id}',-15)">⟲</button>
+          <input type="number" title="Ángulo exacto (°)" value="${Math.round(f.rot||0)}" min="0" max="359" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();setFurnRot('${p.id}','${room.id}','${f.id}',this.value)">
+          <button class="icon-btn" title="Girar 15° a la derecha" onclick="event.stopPropagation();nudgeFurnRot('${p.id}','${room.id}','${f.id}',15)">⟳</button>
           <input type="number" title="Precio" value="${f.price||0}" style="width:62px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnPrice('${p.id}','${room.id}','${f.id}',this.value)">
-          <button class="icon-btn" title="Girar 90°" onclick="event.stopPropagation();rotateFurniture('${p.id}','${room.id}','${f.id}')">⟳</button>
           <button class="icon-btn danger-hover" onclick="event.stopPropagation();removeFurniture('${p.id}','${room.id}','${f.id}')">${ICONS.trash}</button>
         </span>
       </div>`).join('') || '<p style="color:var(--ink-soft);font-size:12.5px">Vacío.</p>'}</div>
   `;
+}
+/* Punto de aparición para mobiliario nuevo: cerca del centro de la habitación (no de su
+   esquina) y con un pequeño escalonado por cada mueble ya presente, para que añadir varios
+   muebles seguidos no los amontone todos exactamente en el mismo sitio ni tan pegados a un
+   vértice que sea fácil confundir "mover el mueble" con "arrastrar la esquina de la sala" */
+function roomSpawnPoint(room, w, h){
+  const xs = room.points.map(pt=>pt.x), ys = room.points.map(pt=>pt.y);
+  const bx = Math.min(...xs), bxMax = Math.max(...xs), by = Math.min(...ys), byMax = Math.max(...ys);
+  const cx = (bx+bxMax)/2, cy = (by+byMax)/2;
+  const n = (room.furniture||[]).length;
+  const stagger = (n%6)*18;
+  let x = cx-w/2+stagger, y = cy-h/2+stagger;
+  x = Math.max(bx+8, Math.min(bxMax-w-8, x));
+  y = Math.max(by+8, Math.min(byMax-h-8, y));
+  return {x,y};
 }
 function addCustomFurniture(pid){
   const p = getProject(pid);
@@ -2053,8 +2122,9 @@ function addCustomFurniture(pid){
   const name = (document.getElementById('cf-name').value||'').trim() || 'Mueble a medida';
   const wCm = Number(document.getElementById('cf-w').value)||60;
   const hCm = Number(document.getElementById('cf-h').value)||60;
-  const bx = Math.min(...room.points.map(pt=>pt.x)), by = Math.min(...room.points.map(pt=>pt.y));
-  const item = {id:uid(), label:name, x:bx+16, y:by+16, w:Math.max(5,wCm/100*planState.scale), h:Math.max(5,hCm/100*planState.scale), price:0, custom:true};
+  const w = Math.max(5,wCm/100*planState.scale), h = Math.max(5,hCm/100*planState.scale);
+  const {x,y} = roomSpawnPoint(room, w, h);
+  const item = {id:uid(), label:name, x, y, w, h, rot:0, price:0, custom:true};
   room.furniture.push(item);
   planState.selectedFurn = item.id;
   touchProject(p); refreshTab(p);
@@ -2164,21 +2234,38 @@ function addFurniture(label){
   if(!room) return;
   const meta = FURN_META[label] || {w:0.6,h:0.6};
   const w = meta.w*planState.scale, h = meta.h*planState.scale;
-  const bx = Math.min(...room.points.map(pt=>pt.x)), by = Math.min(...room.points.map(pt=>pt.y));
-  const item = {id:uid(), label, x: bx+16, y: by+16, w, h, price:0};
+  const {x,y} = roomSpawnPoint(room, w, h);
+  const item = {id:uid(), label, x, y, w, h, rot:0, price:0};
   room.furniture.push(item);
   planState.selectedFurn = item.id;
   touchProject(p); refreshTab(p);
 }
+/* Gira el mueble 90° (atajo rápido). Para cualquier otro ángulo ("a tu manera": 15°, 150°...)
+   usa el campo de grados junto al mueble en la lista, que llama a setFurnRot. */
 function rotateFurniture(pid, rid, fid){
   const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
   const f = room.furniture.find(f=>f.id===fid);
-  const w=f.w, h=f.h; f.w=h; f.h=w;
+  f.rot = ((f.rot||0) + 90) % 360;
   touchProject(p); refreshTab(p);
 }
 function updateFurnPrice(pid, rid, fid, val){
   const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
   const f = room.furniture.find(f=>f.id===fid); f.price = Number(val)||0;
+  touchProject(p); refreshTab(p);
+}
+/* Fija un ángulo de rotación exacto (en grados) al mueble, para colocarlo "a tu manera"
+   contra una pared en diagonal o en cualquier orientación que no sea a 90° */
+function setFurnRot(pid, rid, fid, val){
+  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
+  const f = room.furniture.find(f=>f.id===fid);
+  let deg = Number(val); if(isNaN(deg)) deg = 0;
+  f.rot = ((deg%360)+360)%360;
+  touchProject(p); refreshTab(p);
+}
+function nudgeFurnRot(pid, rid, fid, delta){
+  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
+  const f = room.furniture.find(f=>f.id===fid);
+  f.rot = (((f.rot||0)+delta)%360+360)%360;
   touchProject(p); refreshTab(p);
 }
 function removeFurniture(pid, rid, fid){
@@ -2204,14 +2291,16 @@ function initPlanCanvas(p){
     const dpr = devicePixelRatio;
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
-    ctx.setTransform(dpr*planState.zoom,0,0,dpr*planState.zoom,0,0);
+    ctx.setTransform(dpr*planState.zoom,0,0,dpr*planState.zoom,dpr*planState.panX,dpr*planState.panY);
     // Cuadrícula de referencia cada 0,5 m, muy sutil, para dar sensación de escala real
     const gridStep = planState.scale*0.5;
     if(gridStep > 5){
-      const gw = holder.clientWidth/planState.zoom, gh = holder.clientHeight/planState.zoom;
+      const worldMinX = -planState.panX/planState.zoom, worldMaxX = (holder.clientWidth-planState.panX)/planState.zoom;
+      const worldMinY = -planState.panY/planState.zoom, worldMaxY = (holder.clientHeight-planState.panY)/planState.zoom;
+      const startX = Math.floor(worldMinX/gridStep)*gridStep, startY = Math.floor(worldMinY/gridStep)*gridStep;
       ctx.strokeStyle = 'rgba(30,42,46,.06)'; ctx.lineWidth = 1;
-      for(let gx=0; gx<gw; gx+=gridStep){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,gh); ctx.stroke(); }
-      for(let gy=0; gy<gh; gy+=gridStep){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(gw,gy); ctx.stroke(); }
+      for(let gx=startX; gx<worldMaxX; gx+=gridStep){ ctx.beginPath(); ctx.moveTo(gx,worldMinY); ctx.lineTo(gx,worldMaxY); ctx.stroke(); }
+      for(let gy=startY; gy<worldMaxY; gy+=gridStep){ ctx.beginPath(); ctx.moveTo(worldMinX,gy); ctx.lineTo(worldMaxX,gy); ctx.stroke(); }
     }
     const floorRooms = roomsOnFloor(p);
     // Pasada 1: rellenos, contornos y acotaciones de todas las habitaciones (para que ninguna tape la etiqueta de otra)
@@ -2244,14 +2333,18 @@ function initPlanCanvas(p){
       ctx.fillText(fmtM2(roomAreaM2(r)), bx+6, by+30);
       (r.furniture||[]).forEach(f=>{
         drawFurnitureSymbol(ctx, f);
+        const labelAnchor = furnToWorld({x:f.x, y:f.y+f.h}, f);
         ctx.fillStyle = '#1E2A2E';
         ctx.font = '9.5px IBM Plex Sans';
-        ctx.fillText(f.label, f.x+2, f.y+f.h+11);
+        ctx.fillText(f.label, labelAnchor.x+2, labelAnchor.y+11);
         if(f.id===planState.selectedFurn){
+          const handle = furnToWorld({x:f.x+f.w, y:f.y+f.h}, f);
           ctx.fillStyle='#fff'; ctx.strokeStyle='#1463D6'; ctx.lineWidth=1.5;
-          ctx.fillRect(f.x+f.w-5, f.y+f.h-5, 10, 10); ctx.strokeRect(f.x+f.w-5, f.y+f.h-5, 10, 10);
+          ctx.fillRect(handle.x-5, handle.y-5, 10, 10); ctx.strokeRect(handle.x-5, handle.y-5, 10, 10);
           ctx.font='600 9.5px IBM Plex Mono'; ctx.fillStyle='#1463D6';
-          ctx.fillText(Math.round(f.w/planState.scale*100)+'×'+Math.round(f.h/planState.scale*100)+' cm', f.x, Math.max(10,f.y-4));
+          const dims = Math.round(f.w/planState.scale*100)+'×'+Math.round(f.h/planState.scale*100)+' cm'+(f.rot?' · '+Math.round(f.rot)+'°':'');
+          const labelPos = furnToWorld({x:f.x, y:f.y}, f);
+          ctx.fillText(dims, labelPos.x, Math.max(10,labelPos.y-4));
         }
       });
     });
@@ -2351,7 +2444,7 @@ function initPlanCanvas(p){
       const r = rooms[ri];
       for(let fi=(r.furniture||[]).length-1; fi>=0; fi--){
         const f = r.furniture[fi];
-        if(mx>=f.x&&mx<=f.x+f.w&&my>=f.y&&my<=f.y+f.h) return {type:'furn', room:r, item:f};
+        if(pointInFurnRect(pos, f)) return {type:'furn', room:r, item:f};
       }
     }
     for(let ri=rooms.length-1; ri>=0; ri--){
@@ -2363,9 +2456,16 @@ function initPlanCanvas(p){
   function getPos(e){
     const rect = canvas.getBoundingClientRect();
     const t = e.touches ? e.touches[0] : e;
-    return {x: (t.clientX-rect.left)/planState.zoom, y: (t.clientY-rect.top)/planState.zoom};
+    return {x: (t.clientX-rect.left-planState.panX)/planState.zoom, y: (t.clientY-rect.top-planState.panY)/planState.zoom};
   }
+  canvas.oncontextmenu = (e)=>e.preventDefault();
   canvas.onpointerdown = (e)=>{
+    if(e.button===2){
+      planState.drag = {type:'pan', startX:e.clientX, startY:e.clientY, startPanX:planState.panX, startPanY:planState.panY};
+      canvas.setPointerCapture(e.pointerId);
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
     const pos = getPos(e);
     planState.mousePos = pos;
     if(planState.drawMode){
@@ -2409,9 +2509,12 @@ function initPlanCanvas(p){
     if(planState.selectedFurn){
       const room = p.rooms.find(r=>(r.furniture||[]).some(f=>f.id===planState.selectedFurn));
       const f = room && room.furniture.find(f=>f.id===planState.selectedFurn);
-      if(f && distPx(pos,{x:f.x+f.w,y:f.y+f.h}) < 10){
-        planState.drag = {type:'resize-furn', obj:f};
-        canvas.setPointerCapture(e.pointerId); draw(); return;
+      if(f){
+        const handlePos = furnToWorld({x:f.x+f.w,y:f.y+f.h}, f);
+        if(distPx(pos,handlePos) < 10){
+          planState.drag = {type:'resize-furn', obj:f, anchor:{x:f.x,y:f.y}, rot:f.rot||0};
+          canvas.setPointerCapture(e.pointerId); draw(); return;
+        }
       }
     }
     if(planState.selectedColumn){
@@ -2432,11 +2535,6 @@ function initPlanCanvas(p){
         }
       }
     }
-    const vh = vertexHitTest(pos);
-    if(vh){
-      planState.drag = {type:'vertex', room:vh.room, index:vh.index};
-      canvas.setPointerCapture(e.pointerId); draw(); return;
-    }
     if(planState.selectedWall){
       const w = (p.walls||[]).find(w=>w.id===planState.selectedWall);
       if(w){
@@ -2444,7 +2542,18 @@ function initPlanCanvas(p){
         if(distPx(pos,w.b)<10){ planState.drag={type:'wall-end', wall:w, end:'b'}; canvas.setPointerCapture(e.pointerId); draw(); return; }
       }
     }
+    // El mobiliario y otros elementos tienen prioridad sobre "arrastrar la esquina de la
+    // habitación": solo se activa el arrastre de esquina si el clic no ha caído sobre nada
+    // más concreto (mueble, muro, columna...), para que colocar un mueble junto a una
+    // esquina no acabe moviendo/deformando la habitación sin querer.
     const hit = hitTest(pos.x,pos.y);
+    if(!hit || hit.type==='room'){
+      const vh = vertexHitTest(pos);
+      if(vh){
+        planState.drag = {type:'vertex', room:vh.room, index:vh.index};
+        canvas.setPointerCapture(e.pointerId); draw(); return;
+      }
+    }
     if(hit){
       if(hit.type==='room'){ planState.selectedRoom = hit.room.id; planState.selectedFurn=null; planState.selectedWall=null; planState.selectedColumn=null; planState.selectedOpening=null;
         planState.drag = {type:'room', room:hit.room, startPos:pos, startPoints:hit.room.points.map(pt=>({...pt}))}; planState.sidePanel='rooms'; }
@@ -2463,6 +2572,12 @@ function initPlanCanvas(p){
     draw();
   };
   canvas.onpointermove = (e)=>{
+    if(planState.drag && planState.drag.type==='pan'){
+      planState.panX = planState.drag.startPanX + (e.clientX-planState.drag.startX);
+      planState.panY = planState.drag.startPanY + (e.clientY-planState.drag.startY);
+      draw();
+      return;
+    }
     const pos = getPos(e);
     if(planState.wallMode && planState.wallStart){
       planState.mousePos = smartSnap(pos, p, null, planState.wallStart);
@@ -2481,8 +2596,13 @@ function initPlanCanvas(p){
         planState.drag.obj.x = Math.max(0, pos.x-planState.drag.ox);
         planState.drag.obj.y = Math.max(0, pos.y-planState.drag.oy);
       } else if(planState.drag.type==='resize-furn'){
-        const f = planState.drag.obj;
-        f.w = Math.max(8, pos.x-f.x); f.h = Math.max(8, pos.y-f.y);
+        // El punto de anclaje (esquina superior-izquierda sin rotar) y el ángulo se fijan
+        // al empezar a arrastrar, para poder redimensionar muebles girados a cualquier
+        // ángulo sin que la forma "salte" mientras se mueve el ratón.
+        const f = planState.drag.obj, anchor = planState.drag.anchor, rad = -(planState.drag.rot||0)*Math.PI/180;
+        const dx = pos.x-anchor.x, dy = pos.y-anchor.y;
+        const lx = dx*Math.cos(rad)-dy*Math.sin(rad), ly = dx*Math.sin(rad)+dy*Math.cos(rad);
+        f.w = Math.max(8, lx); f.h = Math.max(8, ly);
       } else if(planState.drag.type==='resize-col'){
         const c = planState.drag.obj;
         c.w = Math.max(6, pos.x-c.x); c.h = Math.max(6, pos.y-c.y);
@@ -2520,7 +2640,10 @@ function initPlanCanvas(p){
   };
   canvas.onpointerup = ()=>{
     if(planState.drag){
-      planState.drag = null; touchProject(p);
+      const wasPan = planState.drag.type==='pan';
+      planState.drag = null;
+      canvas.style.cursor = '';
+      if(!wasPan) touchProject(p);
       refreshPlanSide(p);
       draw();
     }
@@ -3333,6 +3456,7 @@ const FURN3D = {
   'mirror':    {h:0.05, color:'#BFD4E0', shape:'box', lift:1.0},
   'plant':     {h:1.0,  color:'#4C7A4E', shape:'cylinder'},
   'pool':      {h:0.15, color:'#3E9BC7', shape:'box'},
+  'stairs':    {h:2.6,  color:'#C9A876', shape:'box'},
   'default':   {h:0.6,  color:'#A9A296', shape:'box'}
 };
 /* Aclara (percent>0) u oscurece (percent<0) un color hex, para dar variación de tonos
@@ -3503,6 +3627,17 @@ const FURN_BUILDERS = {
     addBox3D(group,w,m.h*0.4,d,0,m.h*0.4/2,0,'#D8D2C4',0.9);
     addBox3D(group,w*0.9,m.h*0.7,d*0.9,0,m.h*0.7/2,0,m.color,0.25);
   },
+  'stairs': (group,w,d,m)=>{ // Escalera: peldaños ascendentes (perfil de rampa escalonada) + pasamanos
+    const steps = Math.max(6, Math.min(22, Math.round(m.h/0.18)));
+    const stepH = m.h/steps, treadD = d/steps;
+    for(let i=0;i<steps;i++){
+      const topY = stepH*(i+1);
+      const z = -d/2 + treadD*(i+0.5);
+      addBox3D(group, w, topY, treadD, 0, topY/2, z, m.color);
+    }
+    addBox3D(group, 0.05, m.h*0.9, 0.05, -w/2+0.03, m.h*0.9/2, 0, '#6B5B45');
+    addBox3D(group, 0.05, m.h*0.9, 0.05, w/2-0.03, m.h*0.9/2, 0, '#6B5B45');
+  },
   'default': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color); }
 };
 function extrudeFootprint3D(pointsM, height, color, opacity){
@@ -3543,15 +3678,19 @@ function buildColumnMesh3D(col, scale, floorHeight){
   mesh.position.set(col.x/scale+wM/2, floorHeight/2, col.y/scale+hM/2);
   return mesh;
 }
-function buildFurnitureMesh3D(item, scale){
+function buildFurnitureMesh3D(item, scale, floorHeight){
   const meta = FURN_META[item.label] || {fam:'default'};
   const meta3d = FURN3D[meta.fam] || FURN3D.default;
   const wM = Math.max(0.05, item.w/scale), hM = Math.max(0.05, item.h/scale);
   const lift = meta3d.lift||0;
+  // La escalera tiene que salvar la altura real de la planta (no una altura fija de
+  // "mueble"), para representar de verdad el hueco que ocupa entre plantas.
+  const effectiveMeta = (meta.fam==='stairs' && floorHeight) ? {...meta3d, h:floorHeight} : meta3d;
   const group = new THREE.Group();
   const builder = FURN_BUILDERS[meta.fam] || FURN_BUILDERS.default;
-  try{ builder(group, wM, hM, meta3d); }
-  catch(e){ FURN_BUILDERS.default(group, wM, hM, meta3d); }
+  try{ builder(group, wM, hM, effectiveMeta); }
+  catch(e){ FURN_BUILDERS.default(group, wM, hM, effectiveMeta); }
+  if(item.rot) group.rotation.y = -item.rot*Math.PI/180;
   group.position.set(item.x/scale+wM/2, SLAB_H_3D+lift, item.y/scale+hM/2);
   return group;
 }
@@ -3565,7 +3704,7 @@ function buildFloorGroup3D(p, floor, scale){
     if(!r.points || r.points.length<3) return;
     const pts = r.points.map(pt=>({x:pt.x/scale, y:pt.y/scale}));
     group.add(extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc'));
-    (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale)));
+    (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale, floorHeight)));
   });
   walls.forEach(w=>group.add(buildWallGroup3D(w, scale, floorHeight)));
   columns.forEach(c=>group.add(buildColumnMesh3D(c, scale, floorHeight)));
