@@ -1056,7 +1056,6 @@ const FURN_CATALOG = [
   {cat:'Cocina', items:['Encimera','Muebles altos','Muebles bajos','Isla','Frigorífico','Horno','Lavavajillas','Lavadora','Microondas']},
   {cat:'Dormitorio', items:['Cama','Mesilla','Armario','Cómoda','Escritorio']},
   {cat:'Baño', items:['WC','Lavabo','Ducha','Bañera','Mueble de baño','Espejo']},
-  {cat:'Estructura', items:['Escalera']},
   {cat:'Exterior', items:['Mesa exterior','Sillas exterior','Barbacoa','Plantas','Piscina']}
 ];
 // Metadatos de cada mueble: familia visual + tamaño por defecto en metros
@@ -1093,8 +1092,7 @@ const FURN_META = {
   'Sillas exterior':{fam:'chair', w:0.45, h:0.45},
   'Barbacoa':{fam:'round', w:0.6, h:0.6},
   'Plantas':{fam:'plant', w:0.4, h:0.4},
-  'Piscina':{fam:'pool', w:4.0, h:2.5},
-  'Escalera':{fam:'stairs', w:1.0, h:2.8}
+  'Piscina':{fam:'pool', w:4.0, h:2.5}
 };
 const WALL_TYPES = {
   fina:        {label:'Pared fina',      thickness:0.07, color:'#9AA6AC', fill:'#C7CFD3'},
@@ -1102,7 +1100,7 @@ const WALL_TYPES = {
   carga:       {label:'Muro de carga',   thickness:0.30, color:'#1E2A2E', fill:'#3C4A4D'}
 };
 let planState = { selectedRoom:null, selectedFurn:null, selectedWall:null, selectedColumn:null, selectedOpening:null,
-  drag:null, scale:40, zoom:1, panX:0, panY:0,
+  drag:null, scale:40, zoom:1,
   drawMode:false, drawPoints:[],
   wallMode:false, wallType:'separatoria', wallStart:null,
   columnMode:false,
@@ -1297,40 +1295,13 @@ function findEdgeForPoint(polyPoints, pt, epsilon){
   }
   return best;
 }
-/* --- Geometría de mobiliario rotado: cada mueble guarda x,y,w,h como su rectángulo
-   "sin rotar" (igual que siempre) más un ángulo f.rot en grados que se aplica alrededor
-   de su propio centro, tanto al dibujarlo como al calcular colisiones de ratón. */
-function furnCenter(f){ return {x:f.x+f.w/2, y:f.y+f.h/2}; }
-/* Convierte una posición del canvas (mundo) al sistema de coordenadas propio del mueble
-   (deshace la rotación alrededor de su centro), para poder comparar contra x,y,w,h tal cual */
-function furnToLocal(pos, f){
-  if(!f.rot) return pos;
-  const c = furnCenter(f), rad=-f.rot*Math.PI/180;
-  const dx=pos.x-c.x, dy=pos.y-c.y, cos=Math.cos(rad), sin=Math.sin(rad);
-  return { x:c.x+dx*cos-dy*sin, y:c.y+dx*sin+dy*cos };
-}
-/* Convierte un punto local (relativo al rectángulo sin rotar) a coordenadas de mundo,
-   aplicando la rotación del mueble alrededor de su centro. Útil para dibujar el
-   tirador de redimensionar en su sitio real cuando el mueble está girado */
-function furnToWorld(pt, f){
-  if(!f.rot) return pt;
-  const c = furnCenter(f), rad=f.rot*Math.PI/180;
-  const dx=pt.x-c.x, dy=pt.y-c.y, cos=Math.cos(rad), sin=Math.sin(rad);
-  return { x:c.x+dx*cos-dy*sin, y:c.y+dx*sin+dy*cos };
-}
-function pointInFurnRect(pos, f){
-  const lp = furnToLocal(pos, f);
-  return lp.x>=f.x && lp.x<=f.x+f.w && lp.y>=f.y && lp.y<=f.y+f.h;
-}
 /* Dibuja un símbolo esquemático de mobiliario en planta (estilo plano de arquitecto) */
 function drawFurnitureSymbol(ctx, f){
   const meta = FURN_META[f.label] || {fam:'default'};
   const {x,y,w,h} = f;
   const sel = f.id===planState.selectedFurn;
   ctx.save();
-  ctx.translate(x+w/2,y+h/2);
-  if(f.rot) ctx.rotate(f.rot*Math.PI/180);
-  ctx.translate(-w/2,-h/2);
+  ctx.translate(x,y);
   const stroke = sel ? '#E43A1E' : '#4A5A5D';
   ctx.strokeStyle = stroke; ctx.fillStyle = '#FFFFFFE6'; ctx.lineWidth = sel?2:1.2;
   const rr = (x0,y0,ww,hh,r)=>{ r=Math.min(r,ww/2,hh/2); ctx.beginPath();
@@ -1429,16 +1400,6 @@ function drawFurnitureSymbol(ctx, f){
       ctx.strokeStyle='rgba(44,95,124,.4)';
       for(let i=1;i<4;i++){ const ly=(h/4)*i; ctx.beginPath(); ctx.moveTo(6,ly); ctx.lineTo(w-6,ly); ctx.stroke(); }
       break;
-    case 'stairs': { // escalera: peldaños + flecha de subida
-      ctx.fillStyle='#EFE8DA'; ctx.fillRect(0,0,w,h); ctx.strokeRect(0,0,w,h);
-      const nsteps = Math.max(4, Math.round(h/14));
-      ctx.strokeStyle='rgba(74,90,93,.55)'; ctx.lineWidth=1;
-      for(let i=1;i<nsteps;i++){ const ly=(h/nsteps)*i; ctx.beginPath(); ctx.moveTo(2,ly); ctx.lineTo(w-2,ly); ctx.stroke(); }
-      ctx.strokeStyle=stroke; ctx.lineWidth=sel?2:1.5;
-      ctx.beginPath(); ctx.moveTo(w/2,h-8); ctx.lineTo(w/2,10);
-      ctx.moveTo(w/2-6,20); ctx.lineTo(w/2,10); ctx.lineTo(w/2+6,20); ctx.stroke();
-      break;
-    }
     default:
       ctx.fillRect(0,0,w,h); ctx.strokeRect(0,0,w,h);
   }
@@ -1471,15 +1432,7 @@ function showPlanHelp(){
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Mobiliario</h3>
-        <p class="help" style="margin:0">Selecciona una habitación y añade muebles desde la pestaña "Mobiliario". Arrástralos para colocarlos, y usa la esquina inferior derecha de cada uno para cambiar su tamaño. Para girarlo a cualquier ángulo (no solo 90°), usa los botones ⟲/⟳ (±15°) o escribe el grado exacto en el campo "°" junto al mueble — así puedes encajarlo contra una pared en diagonal o dejarlo "a tu manera".</p>
-      </div>
-      <div>
-        <h3 style="margin:0 0 4px;font-size:14px">Escaleras</h3>
-        <p class="help" style="margin:0">Se añaden como un mueble más, desde la categoría "Estructura" → "Escalera". Se ven en el plano con sus peldaños y una flecha de subida, y en la vista 3D se levantan con la altura real de la planta, para que sepas de un vistazo qué zona del suelo ocupan y no es superficie útil.</p>
-      </div>
-      <div>
-        <h3 style="margin:0 0 4px;font-size:14px">Mover la vista del plano</h3>
-        <p class="help" style="margin:0"><b>Clic derecho (o mantener pulsado con dos dedos) y arrastrar</b> desplaza la vista del plano hacia donde quieras, sin tocar ningún elemento del diseño. Usa +/− o "Ajustar" en la barra superior para el zoom.</p>
+        <p class="help" style="margin:0">Selecciona una habitación y añade muebles desde la pestaña "Mobiliario". Arrástralos para colocarlos, y usa la esquina inferior derecha de cada uno para cambiar su tamaño.</p>
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Referencias del plano</h3>
@@ -1511,11 +1464,7 @@ function show3DHelp(){
       </div>
       <div>
         <h3 style="margin:0 0 4px;font-size:14px">Sobre el mobiliario</h3>
-        <p class="help" style="margin:0">Cada mueble sale con una altura aproximada típica de su tipo (una cama, un armario, una mesa...); no son modelos exactos ni con detalle de diseño, solo una referencia de volumen para hacerte una idea del espacio. Si lo has girado en el plano 2D (a 90°, 15°, o cualquier ángulo libre), aquí sale con esa misma orientación.</p>
-      </div>
-      <div>
-        <h3 style="margin:0 0 4px;font-size:14px">Escaleras</h3>
-        <p class="help" style="margin:0">Si has añadido una "Escalera" desde Mobiliario → Estructura, aquí sube con la altura real de esa planta (no una altura genérica), para que veas bien el hueco que deja en el suelo hacia la planta siguiente.</p>
+        <p class="help" style="margin:0">Cada mueble sale con una altura aproximada típica de su tipo (una cama, un armario, una mesa...); no son modelos exactos ni con detalle de diseño, solo una referencia de volumen para hacerte una idea del espacio.</p>
       </div>
     </div>
     <button class="btn primary" style="width:100%;margin-top:16px" onclick="closeModal()">Entendido</button>
@@ -1635,7 +1584,7 @@ function tabPlano(p){
         <div class="plan-canvas-holder">
           <canvas id="planCanvas" width="700" height="480" style="display:block;width:100%;height:100%"></canvas>
         </div>
-        <p class="help" style="margin-top:8px">Arrastra la esquina inferior derecha del recuadro para hacer el plano más alto, o usa +/− para alejar y ver más superficie a la vez. <b>Clic derecho + arrastrar</b> mueve la vista del plano (paneo) sin tocar nada del diseño. Superficie de esta planta: <b>${fmtM2(floorArea)}</b> · Superficie total vivienda: <b>${fmtM2(totalArea(p))}</b> · Coste mobiliario: <b>${fmtMoney(furnitureTotal(p))}</b></p>
+        <p class="help" style="margin-top:8px">Arrastra la esquina inferior derecha del recuadro para hacer el plano más alto, o usa +/− para alejar y ver más superficie a la vez. Superficie de esta planta: <b>${fmtM2(floorArea)}</b> · Superficie total vivienda: <b>${fmtM2(totalArea(p))}</b> · Coste mobiliario: <b>${fmtMoney(furnitureTotal(p))}</b></p>
       </div>
       <div class="plan-side" id="planSideInner">${renderPlanSideInner(p)}</div>
     </div>
@@ -1967,7 +1916,6 @@ function zoomPlan(dir){
   const z=document.querySelector('.plan-toolbar .mono'); if(z) z.textContent = Math.round(planState.zoom*100)+'%';
 }
 function zoomPlanReset(){
-  planState.panX = 0; planState.panY = 0;
   const p = currentProjectFromHash();
   const canvas = document.getElementById('planCanvas');
   const pts = [];
@@ -2080,10 +2028,11 @@ function renderFurnPanel(p){
       <input id="cf-name" placeholder="Nombre" style="flex:1;min-width:70px">
       <input id="cf-w" type="number" placeholder="Ancho cm" style="width:72px">
       <input id="cf-h" type="number" placeholder="Fondo cm" style="width:72px">
+      <input id="cf-alt" type="number" placeholder="Alto cm" style="width:72px">
       <button class="btn sm" style="width:100%" onclick="addCustomFurniture('${p.id}')">${ICONS.plus} Añadir a medida</button>
     </div>
     <h3 style="font-size:14px">En esta habitación</h3>
-    <p class="help" style="margin-top:0">Toca un mueble en el plano y arrastra su esquina para redimensionarlo, o ajusta cm y grados aquí. También puedes girarlo directamente en el plano: mantenlo seleccionado y usa el campo "°" para dejarlo a cualquier ángulo, no solo a 90°.</p>
+    <p class="help" style="margin-top:0">Toca un mueble en el plano y arrastra su esquina para redimensionarlo, o ajusta cm aquí.</p>
     <div>${(room.furniture||[]).map(f=>`
       <div class="furn-item" style="${planState.selectedFurn===f.id?'border-color:var(--blue)':''}" onclick="planState.selectedRoom='${room.id}';planState.selectedFurn='${f.id}';refreshTab(getProject('${p.id}'))">
         <span>${escapeHtml(f.label)}</span>
@@ -2091,29 +2040,15 @@ function renderFurnPanel(p){
           <input type="number" title="Ancho (cm)" value="${Math.round(f.w/planState.scale*100)}" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnSize('${p.id}','${room.id}','${f.id}','w',this.value)">
           <span style="font-size:11px;color:var(--ink-soft)">×</span>
           <input type="number" title="Fondo (cm)" value="${Math.round(f.h/planState.scale*100)}" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnSize('${p.id}','${room.id}','${f.id}','h',this.value)">
-          <button class="icon-btn" title="Girar 15° a la izquierda" onclick="event.stopPropagation();nudgeFurnRot('${p.id}','${room.id}','${f.id}',-15)">⟲</button>
-          <input type="number" title="Ángulo exacto (°)" value="${Math.round(f.rot||0)}" min="0" max="359" style="width:52px" onclick="event.stopPropagation()" onchange="event.stopPropagation();setFurnRot('${p.id}','${room.id}','${f.id}',this.value)">
-          <button class="icon-btn" title="Girar 15° a la derecha" onclick="event.stopPropagation();nudgeFurnRot('${p.id}','${room.id}','${f.id}',15)">⟳</button>
+          ${!FURN_RECIPES[f.label] ? `<input type="number" title="Alto de la pieza (cm)" placeholder="Alto" value="${f.heightCm||60}" style="width:56px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnHeight('${p.id}','${room.id}','${f.id}',this.value)">` : ''}
+          <input type="number" title="Altura desde el suelo (cm) — para colgarlo, p.ej. un TV o un espejo" placeholder="↕ cm" value="${f.liftCm||0}" style="width:56px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnLift('${p.id}','${room.id}','${f.id}',this.value)">
           <input type="number" title="Precio" value="${f.price||0}" style="width:62px" onclick="event.stopPropagation()" onchange="event.stopPropagation();updateFurnPrice('${p.id}','${room.id}','${f.id}',this.value)">
+          <button class="icon-btn" title="Girar 90°" onclick="event.stopPropagation();rotateFurniture('${p.id}','${room.id}','${f.id}')">⟳</button>
           <button class="icon-btn danger-hover" onclick="event.stopPropagation();removeFurniture('${p.id}','${room.id}','${f.id}')">${ICONS.trash}</button>
         </span>
       </div>`).join('') || '<p style="color:var(--ink-soft);font-size:12.5px">Vacío.</p>'}</div>
+    <p class="help" style="margin-top:6px">"↕ cm" es la altura desde el suelo a la que empieza el mueble en la vista 3D — déjalo en 0 para apoyado en el suelo, o súbelo para colgarlo (un TV o un espejo, por ejemplo).</p>
   `;
-}
-/* Punto de aparición para mobiliario nuevo: cerca del centro de la habitación (no de su
-   esquina) y con un pequeño escalonado por cada mueble ya presente, para que añadir varios
-   muebles seguidos no los amontone todos exactamente en el mismo sitio ni tan pegados a un
-   vértice que sea fácil confundir "mover el mueble" con "arrastrar la esquina de la sala" */
-function roomSpawnPoint(room, w, h){
-  const xs = room.points.map(pt=>pt.x), ys = room.points.map(pt=>pt.y);
-  const bx = Math.min(...xs), bxMax = Math.max(...xs), by = Math.min(...ys), byMax = Math.max(...ys);
-  const cx = (bx+bxMax)/2, cy = (by+byMax)/2;
-  const n = (room.furniture||[]).length;
-  const stagger = (n%6)*18;
-  let x = cx-w/2+stagger, y = cy-h/2+stagger;
-  x = Math.max(bx+8, Math.min(bxMax-w-8, x));
-  y = Math.max(by+8, Math.min(byMax-h-8, y));
-  return {x,y};
 }
 function addCustomFurniture(pid){
   const p = getProject(pid);
@@ -2122,9 +2057,9 @@ function addCustomFurniture(pid){
   const name = (document.getElementById('cf-name').value||'').trim() || 'Mueble a medida';
   const wCm = Number(document.getElementById('cf-w').value)||60;
   const hCm = Number(document.getElementById('cf-h').value)||60;
-  const w = Math.max(5,wCm/100*planState.scale), h = Math.max(5,hCm/100*planState.scale);
-  const {x,y} = roomSpawnPoint(room, w, h);
-  const item = {id:uid(), label:name, x, y, w, h, rot:0, price:0, custom:true};
+  const altCm = Number(document.getElementById('cf-alt').value)||60;
+  const bx = Math.min(...room.points.map(pt=>pt.x)), by = Math.min(...room.points.map(pt=>pt.y));
+  const item = {id:uid(), label:name, x:bx+16, y:by+16, w:Math.max(5,wCm/100*planState.scale), h:Math.max(5,hCm/100*planState.scale), heightCm:Math.max(2,altCm), liftCm:0, price:0, custom:true};
   room.furniture.push(item);
   planState.selectedFurn = item.id;
   touchProject(p); refreshTab(p);
@@ -2134,6 +2069,18 @@ function updateFurnSize(pid, rid, fid, dim, valCm){
   const f = room.furniture.find(f=>f.id===fid);
   const px = Math.max(5, (Number(valCm)||1)/100*planState.scale);
   if(dim==='w') f.w = px; else f.h = px;
+  touchProject(p); refreshTab(p);
+}
+function updateFurnHeight(pid, rid, fid, valCm){
+  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
+  const f = room.furniture.find(f=>f.id===fid);
+  f.heightCm = Math.max(2, Number(valCm)||60);
+  touchProject(p); refreshTab(p);
+}
+function updateFurnLift(pid, rid, fid, valCm){
+  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
+  const f = room.furniture.find(f=>f.id===fid);
+  f.liftCm = Math.max(0, Number(valCm)||0);
   touchProject(p); refreshTab(p);
 }
 function renderFurnItems(){
@@ -2234,38 +2181,21 @@ function addFurniture(label){
   if(!room) return;
   const meta = FURN_META[label] || {w:0.6,h:0.6};
   const w = meta.w*planState.scale, h = meta.h*planState.scale;
-  const {x,y} = roomSpawnPoint(room, w, h);
-  const item = {id:uid(), label, x, y, w, h, rot:0, price:0};
+  const bx = Math.min(...room.points.map(pt=>pt.x)), by = Math.min(...room.points.map(pt=>pt.y));
+  const item = {id:uid(), label, x: bx+16, y: by+16, w, h, price:0, liftCm: DEFAULT_LIFT_CM[label]||0};
   room.furniture.push(item);
   planState.selectedFurn = item.id;
   touchProject(p); refreshTab(p);
 }
-/* Gira el mueble 90° (atajo rápido). Para cualquier otro ángulo ("a tu manera": 15°, 150°...)
-   usa el campo de grados junto al mueble en la lista, que llama a setFurnRot. */
 function rotateFurniture(pid, rid, fid){
   const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
   const f = room.furniture.find(f=>f.id===fid);
-  f.rot = ((f.rot||0) + 90) % 360;
+  const w=f.w, h=f.h; f.w=h; f.h=w;
   touchProject(p); refreshTab(p);
 }
 function updateFurnPrice(pid, rid, fid, val){
   const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
   const f = room.furniture.find(f=>f.id===fid); f.price = Number(val)||0;
-  touchProject(p); refreshTab(p);
-}
-/* Fija un ángulo de rotación exacto (en grados) al mueble, para colocarlo "a tu manera"
-   contra una pared en diagonal o en cualquier orientación que no sea a 90° */
-function setFurnRot(pid, rid, fid, val){
-  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
-  const f = room.furniture.find(f=>f.id===fid);
-  let deg = Number(val); if(isNaN(deg)) deg = 0;
-  f.rot = ((deg%360)+360)%360;
-  touchProject(p); refreshTab(p);
-}
-function nudgeFurnRot(pid, rid, fid, delta){
-  const p = getProject(pid); const room = p.rooms.find(r=>r.id===rid);
-  const f = room.furniture.find(f=>f.id===fid);
-  f.rot = (((f.rot||0)+delta)%360+360)%360;
   touchProject(p); refreshTab(p);
 }
 function removeFurniture(pid, rid, fid){
@@ -2291,16 +2221,14 @@ function initPlanCanvas(p){
     const dpr = devicePixelRatio;
     ctx.setTransform(dpr,0,0,dpr,0,0);
     ctx.clearRect(0,0,canvas.width/dpr, canvas.height/dpr);
-    ctx.setTransform(dpr*planState.zoom,0,0,dpr*planState.zoom,dpr*planState.panX,dpr*planState.panY);
+    ctx.setTransform(dpr*planState.zoom,0,0,dpr*planState.zoom,0,0);
     // Cuadrícula de referencia cada 0,5 m, muy sutil, para dar sensación de escala real
     const gridStep = planState.scale*0.5;
     if(gridStep > 5){
-      const worldMinX = -planState.panX/planState.zoom, worldMaxX = (holder.clientWidth-planState.panX)/planState.zoom;
-      const worldMinY = -planState.panY/planState.zoom, worldMaxY = (holder.clientHeight-planState.panY)/planState.zoom;
-      const startX = Math.floor(worldMinX/gridStep)*gridStep, startY = Math.floor(worldMinY/gridStep)*gridStep;
+      const gw = holder.clientWidth/planState.zoom, gh = holder.clientHeight/planState.zoom;
       ctx.strokeStyle = 'rgba(30,42,46,.06)'; ctx.lineWidth = 1;
-      for(let gx=startX; gx<worldMaxX; gx+=gridStep){ ctx.beginPath(); ctx.moveTo(gx,worldMinY); ctx.lineTo(gx,worldMaxY); ctx.stroke(); }
-      for(let gy=startY; gy<worldMaxY; gy+=gridStep){ ctx.beginPath(); ctx.moveTo(worldMinX,gy); ctx.lineTo(worldMaxX,gy); ctx.stroke(); }
+      for(let gx=0; gx<gw; gx+=gridStep){ ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,gh); ctx.stroke(); }
+      for(let gy=0; gy<gh; gy+=gridStep){ ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(gw,gy); ctx.stroke(); }
     }
     const floorRooms = roomsOnFloor(p);
     // Pasada 1: rellenos, contornos y acotaciones de todas las habitaciones (para que ninguna tape la etiqueta de otra)
@@ -2333,18 +2261,14 @@ function initPlanCanvas(p){
       ctx.fillText(fmtM2(roomAreaM2(r)), bx+6, by+30);
       (r.furniture||[]).forEach(f=>{
         drawFurnitureSymbol(ctx, f);
-        const labelAnchor = furnToWorld({x:f.x, y:f.y+f.h}, f);
         ctx.fillStyle = '#1E2A2E';
         ctx.font = '9.5px IBM Plex Sans';
-        ctx.fillText(f.label, labelAnchor.x+2, labelAnchor.y+11);
+        ctx.fillText(f.label, f.x+2, f.y+f.h+11);
         if(f.id===planState.selectedFurn){
-          const handle = furnToWorld({x:f.x+f.w, y:f.y+f.h}, f);
           ctx.fillStyle='#fff'; ctx.strokeStyle='#1463D6'; ctx.lineWidth=1.5;
-          ctx.fillRect(handle.x-5, handle.y-5, 10, 10); ctx.strokeRect(handle.x-5, handle.y-5, 10, 10);
+          ctx.fillRect(f.x+f.w-5, f.y+f.h-5, 10, 10); ctx.strokeRect(f.x+f.w-5, f.y+f.h-5, 10, 10);
           ctx.font='600 9.5px IBM Plex Mono'; ctx.fillStyle='#1463D6';
-          const dims = Math.round(f.w/planState.scale*100)+'×'+Math.round(f.h/planState.scale*100)+' cm'+(f.rot?' · '+Math.round(f.rot)+'°':'');
-          const labelPos = furnToWorld({x:f.x, y:f.y}, f);
-          ctx.fillText(dims, labelPos.x, Math.max(10,labelPos.y-4));
+          ctx.fillText(Math.round(f.w/planState.scale*100)+'×'+Math.round(f.h/planState.scale*100)+' cm', f.x, Math.max(10,f.y-4));
         }
       });
     });
@@ -2444,7 +2368,7 @@ function initPlanCanvas(p){
       const r = rooms[ri];
       for(let fi=(r.furniture||[]).length-1; fi>=0; fi--){
         const f = r.furniture[fi];
-        if(pointInFurnRect(pos, f)) return {type:'furn', room:r, item:f};
+        if(mx>=f.x&&mx<=f.x+f.w&&my>=f.y&&my<=f.y+f.h) return {type:'furn', room:r, item:f};
       }
     }
     for(let ri=rooms.length-1; ri>=0; ri--){
@@ -2456,16 +2380,9 @@ function initPlanCanvas(p){
   function getPos(e){
     const rect = canvas.getBoundingClientRect();
     const t = e.touches ? e.touches[0] : e;
-    return {x: (t.clientX-rect.left-planState.panX)/planState.zoom, y: (t.clientY-rect.top-planState.panY)/planState.zoom};
+    return {x: (t.clientX-rect.left)/planState.zoom, y: (t.clientY-rect.top)/planState.zoom};
   }
-  canvas.oncontextmenu = (e)=>e.preventDefault();
   canvas.onpointerdown = (e)=>{
-    if(e.button===2){
-      planState.drag = {type:'pan', startX:e.clientX, startY:e.clientY, startPanX:planState.panX, startPanY:planState.panY};
-      canvas.setPointerCapture(e.pointerId);
-      canvas.style.cursor = 'grabbing';
-      return;
-    }
     const pos = getPos(e);
     planState.mousePos = pos;
     if(planState.drawMode){
@@ -2509,12 +2426,9 @@ function initPlanCanvas(p){
     if(planState.selectedFurn){
       const room = p.rooms.find(r=>(r.furniture||[]).some(f=>f.id===planState.selectedFurn));
       const f = room && room.furniture.find(f=>f.id===planState.selectedFurn);
-      if(f){
-        const handlePos = furnToWorld({x:f.x+f.w,y:f.y+f.h}, f);
-        if(distPx(pos,handlePos) < 10){
-          planState.drag = {type:'resize-furn', obj:f, anchor:{x:f.x,y:f.y}, rot:f.rot||0};
-          canvas.setPointerCapture(e.pointerId); draw(); return;
-        }
+      if(f && distPx(pos,{x:f.x+f.w,y:f.y+f.h}) < 10){
+        planState.drag = {type:'resize-furn', obj:f};
+        canvas.setPointerCapture(e.pointerId); draw(); return;
       }
     }
     if(planState.selectedColumn){
@@ -2535,6 +2449,11 @@ function initPlanCanvas(p){
         }
       }
     }
+    const vh = vertexHitTest(pos);
+    if(vh){
+      planState.drag = {type:'vertex', room:vh.room, index:vh.index};
+      canvas.setPointerCapture(e.pointerId); draw(); return;
+    }
     if(planState.selectedWall){
       const w = (p.walls||[]).find(w=>w.id===planState.selectedWall);
       if(w){
@@ -2542,18 +2461,7 @@ function initPlanCanvas(p){
         if(distPx(pos,w.b)<10){ planState.drag={type:'wall-end', wall:w, end:'b'}; canvas.setPointerCapture(e.pointerId); draw(); return; }
       }
     }
-    // El mobiliario y otros elementos tienen prioridad sobre "arrastrar la esquina de la
-    // habitación": solo se activa el arrastre de esquina si el clic no ha caído sobre nada
-    // más concreto (mueble, muro, columna...), para que colocar un mueble junto a una
-    // esquina no acabe moviendo/deformando la habitación sin querer.
     const hit = hitTest(pos.x,pos.y);
-    if(!hit || hit.type==='room'){
-      const vh = vertexHitTest(pos);
-      if(vh){
-        planState.drag = {type:'vertex', room:vh.room, index:vh.index};
-        canvas.setPointerCapture(e.pointerId); draw(); return;
-      }
-    }
     if(hit){
       if(hit.type==='room'){ planState.selectedRoom = hit.room.id; planState.selectedFurn=null; planState.selectedWall=null; planState.selectedColumn=null; planState.selectedOpening=null;
         planState.drag = {type:'room', room:hit.room, startPos:pos, startPoints:hit.room.points.map(pt=>({...pt}))}; planState.sidePanel='rooms'; }
@@ -2572,12 +2480,6 @@ function initPlanCanvas(p){
     draw();
   };
   canvas.onpointermove = (e)=>{
-    if(planState.drag && planState.drag.type==='pan'){
-      planState.panX = planState.drag.startPanX + (e.clientX-planState.drag.startX);
-      planState.panY = planState.drag.startPanY + (e.clientY-planState.drag.startY);
-      draw();
-      return;
-    }
     const pos = getPos(e);
     if(planState.wallMode && planState.wallStart){
       planState.mousePos = smartSnap(pos, p, null, planState.wallStart);
@@ -2596,13 +2498,8 @@ function initPlanCanvas(p){
         planState.drag.obj.x = Math.max(0, pos.x-planState.drag.ox);
         planState.drag.obj.y = Math.max(0, pos.y-planState.drag.oy);
       } else if(planState.drag.type==='resize-furn'){
-        // El punto de anclaje (esquina superior-izquierda sin rotar) y el ángulo se fijan
-        // al empezar a arrastrar, para poder redimensionar muebles girados a cualquier
-        // ángulo sin que la forma "salte" mientras se mueve el ratón.
-        const f = planState.drag.obj, anchor = planState.drag.anchor, rad = -(planState.drag.rot||0)*Math.PI/180;
-        const dx = pos.x-anchor.x, dy = pos.y-anchor.y;
-        const lx = dx*Math.cos(rad)-dy*Math.sin(rad), ly = dx*Math.sin(rad)+dy*Math.cos(rad);
-        f.w = Math.max(8, lx); f.h = Math.max(8, ly);
+        const f = planState.drag.obj;
+        f.w = Math.max(8, pos.x-f.x); f.h = Math.max(8, pos.y-f.y);
       } else if(planState.drag.type==='resize-col'){
         const c = planState.drag.obj;
         c.w = Math.max(6, pos.x-c.x); c.h = Math.max(6, pos.y-c.y);
@@ -2640,10 +2537,7 @@ function initPlanCanvas(p){
   };
   canvas.onpointerup = ()=>{
     if(planState.drag){
-      const wasPan = planState.drag.type==='pan';
-      planState.drag = null;
-      canvas.style.cursor = '';
-      if(!wasPan) touchProject(p);
+      planState.drag = null; touchProject(p);
       refreshPlanSide(p);
       draw();
     }
@@ -3436,7 +3330,7 @@ const FURN3D = {
   'seat-long': {h:0.85, color:'#9C8770', shape:'box'},
   'table':     {h:0.75, color:'#B08D57', shape:'box'},
   'chair':     {h:0.85, color:'#8C7A6B', shape:'box'},
-  'flat':      {h:0.05, color:'#2B2E33', shape:'box', lift:1.1},
+  'flat':      {h:0.05, color:'#2B2E33', shape:'box'},
   'storage':   {h:1.0,  color:'#C9BFAE', shape:'box'},
   'shelf':     {h:1.8,  color:'#B08D57', shape:'box'},
   'rug':       {h:0.02, color:'#C77B58', shape:'box'},
@@ -3453,193 +3347,204 @@ const FURN3D = {
   'basin':     {h:0.85, color:'#FFFFFF', shape:'box'},
   'shower':    {h:0.05, color:'#CFE3EA', shape:'box'},
   'tub':       {h:0.55, color:'#FFFFFF', shape:'box'},
-  'mirror':    {h:0.05, color:'#BFD4E0', shape:'box', lift:1.0},
+  'mirror':    {h:0.05, color:'#BFD4E0', shape:'box'},
   'plant':     {h:1.0,  color:'#4C7A4E', shape:'cylinder'},
   'pool':      {h:0.15, color:'#3E9BC7', shape:'box'},
-  'stairs':    {h:2.6,  color:'#C9A876', shape:'box'},
   'default':   {h:0.6,  color:'#A9A296', shape:'box'}
 };
-/* Aclara (percent>0) u oscurece (percent<0) un color hex, para dar variación de tonos
-   (patas, tiradores, costuras...) a partir del color base de cada mueble */
-function shadeColor(hex, percent){
-  hex = String(hex||'#A9A296').replace('#','');
-  if(hex.length===3) hex = hex.split('').map(c=>c+c).join('');
-  const num = parseInt(hex,16)||0;
-  const clamp = v=>Math.max(0,Math.min(255,v));
-  const r = clamp((num>>16) + Math.round(255*percent));
-  const g = clamp(((num>>8)&0xFF) + Math.round(255*percent));
-  const b = clamp((num&0xFF) + Math.round(255*percent));
-  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
-}
-/* Añade una caja al grupo. cx,cy,cz = centro de la caja (cy = altura desde el suelo) */
-function addBox3D(group, w,h,d, cx,cy,cz, color, rough){
-  const geo = new THREE.BoxGeometry(Math.max(0.01,w), Math.max(0.01,h), Math.max(0.01,d));
-  const mat = new THREE.MeshStandardMaterial({color, roughness: rough==null?0.85:rough});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(cx,cy,cz);
-  group.add(mesh);
-  return mesh;
-}
-/* Añade un cilindro (o tronco de cono si rt!=rb). rotX/rotZ permiten tumbarlo para
-   representar discos frontales (puertas de lavadora, duchas) en vez de solo tapas horizontales */
-function addCyl3D(group, rt,rb,h, cx,cy,cz, color, seg, rough, rotX, rotZ){
-  const geo = new THREE.CylinderGeometry(Math.max(0.005,rt), Math.max(0.005,rb), Math.max(0.01,h), seg||16);
-  const mat = new THREE.MeshStandardMaterial({color, roughness: rough==null?0.85:rough});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.set(cx,cy,cz);
-  if(rotX) mesh.rotation.x = rotX;
-  if(rotZ) mesh.rotation.z = rotZ;
-  group.add(mesh);
-  return mesh;
-}
-/* Constructores 3D por familia: cada uno monta el mueble a partir de cajas y cilindros
-   simples (bajo poligonaje) pero con las piezas justas para reconocer qué es de un vistazo:
-   patas, respaldo y brazos en un sofá, cabecero y almohadas en una cama, tirador y puerta
-   en el horno, taza y cisterna en el WC, maceta y follaje en una planta, etc.
-   Convención de ejes locales: x = ancho (izq/dcha), z = profundidad (- = "arriba" del
-   plano 2D = respaldo/parte trasera del mueble, + = "abajo" del plano = frente), y = altura
-   desde el suelo. El grupo resultante se posiciona luego en buildFurnitureMesh3D. */
-const FURN_BUILDERS = {
-  'seat-long': (group,w,d,m)=>{ // Sofá: patas, asiento, respaldo, brazos y costuras de cojines
-    const seatH=Math.min(0.42,m.h*0.5), backH=m.h-seatH, legH=0.11, armW=Math.min(0.16,w*0.14);
-    const lx=w/2-armW*0.35, lz=d/2-0.06;
-    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addCyl3D(group,0.028,0.022,legH,x,legH/2,z,'#3E2E20',8));
-    addBox3D(group, Math.max(0.1,w-armW*2), seatH-legH, d*0.72, 0, legH+(seatH-legH)/2, d*0.06, m.color);
-    addBox3D(group, Math.max(0.1,w-armW*2), backH, d*0.22, 0, seatH+backH/2, -d/2+d*0.11, shadeColor(m.color,-0.06));
-    addBox3D(group, armW, seatH+backH*0.6-legH, d*0.86, -w/2+armW/2, legH+(seatH+backH*0.6-legH)/2, 0, shadeColor(m.color,-0.1));
-    addBox3D(group, armW, seatH+backH*0.6-legH, d*0.86, w/2-armW/2, legH+(seatH+backH*0.6-legH)/2, 0, shadeColor(m.color,-0.1));
-    const cushions=Math.max(2,Math.round(w/0.85));
-    for(let i=1;i<cushions;i++){
-      const cx=-w/2+armW+ (w-armW*2)/cushions*i;
-      addBox3D(group,0.015, seatH-legH-0.02, d*0.68, cx, legH+(seatH-legH)/2, d*0.06, shadeColor(m.color,-0.14));
-    }
-  },
-  'table': (group,w,d,m)=>{ // Mesa/escritorio: tablero + 4 patas
-    const topH=0.05, legT=0.05, legH=m.h-topH;
-    addBox3D(group,w,topH,d,0,m.h-topH/2,0,m.color);
-    const lx=w/2-legT*1.4, lz=d/2-legT*1.4;
-    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addBox3D(group,legT,legH,legT,x,legH/2,z,shadeColor(m.color,-0.18)));
-  },
-  'chair': (group,w,d,m)=>{ // Silla: asiento, respaldo, 4 patas
-    const seatH=m.h*0.5, backH=m.h-seatH, legT=0.035;
-    const lx=w/2-legT*1.3, lz=d/2-legT*1.3;
-    [[-lx,-lz],[lx,-lz],[-lx,lz],[lx,lz]].forEach(([x,z])=>addBox3D(group,legT,seatH,legT,x,seatH/2,z,'#4A3826'));
-    addBox3D(group,w,0.045,d,0,seatH,0,m.color);
-    addBox3D(group,w*0.92,backH,0.04,0,seatH+backH/2,-d/2+0.02,shadeColor(m.color,-0.06));
-  },
-  'flat': (group,w,d,m)=>{ // TV: marco + pantalla
-    addBox3D(group,w,m.h,d,0,0,0,'#181A1D');
-    addBox3D(group,w*0.94,m.h*0.5,0.008,0,0,d/2+0.005,'#0B141C');
-  },
-  'storage': (group,w,d,m)=>{ // Mueble bajo/alto, mueble TV: cuerpo + puertas + tiradores
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    const doors=Math.max(2,Math.round(w/0.55));
-    for(let i=1;i<doors;i++) addBox3D(group,0.008,m.h*0.92,0.008,-w/2+w/doors*i, m.h/2, d/2, shadeColor(m.color,-0.22));
-    for(let i=0;i<doors;i++){ const cx=-w/2+w/doors*(i+0.5)+w/doors*0.32; addCyl3D(group,0.01,0.01,0.09,cx,m.h*0.5,d/2+0.02,'#33383B',6,0.4); }
-  },
-  'shelf': (group,w,d,m)=>{ // Estantería: laterales + baldas
-    const t=0.03, shelves=4;
-    addBox3D(group,t,m.h,d,-w/2+t/2,m.h/2,0,m.color);
-    addBox3D(group,t,m.h,d,w/2-t/2,m.h/2,0,m.color);
-    for(let i=0;i<=shelves;i++) addBox3D(group,w,t*0.6,d,0,Math.min(m.h-t*0.3,i*(m.h/shelves)),0,m.color);
-  },
-  'rug': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color,1.0); },
-  'round': (group,w,d,m)=>{ // Lámpara de pie / barbacoa: base + cuerpo
-    const r=Math.min(w,d)/2;
-    addCyl3D(group,r*0.16,r*0.16,m.h*0.62,0,m.h*0.31,0,'#4A4A4A',10);
-    addCyl3D(group,r,r*0.82,m.h*0.38,0,m.h*0.62+m.h*0.19,0,m.color,16);
-  },
-  'counter': (group,w,d,m)=>{ // Encimera/isla: cuerpo bajo + tablero
-    addBox3D(group,w*0.97,m.h*0.86,d*0.97,0,(m.h*0.86)/2,0,shadeColor(m.color,-0.08));
-    addBox3D(group,w,m.h*0.14,d,0,m.h-m.h*0.07,0,shadeColor(m.color,0.05));
-  },
-  'storage-sm': (group,w,d,m)=>{ // Mesilla, microondas, mueble de baño: cuerpo + tirador
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    addCyl3D(group,0.01,0.01,w*0.18,0,m.h*0.62,d/2+0.02,'#33383B',6,0.4,0,Math.PI/2);
-  },
-  'fridge': (group,w,d,m)=>{ // Frigorífico: cuerpo + línea de puertas + 2 tiradores
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    addBox3D(group,w,0.015,0.02,0,m.h*0.62,d/2, shadeColor(m.color,-0.25));
-    addBox3D(group,0.03,0.16,0.02,w*0.32,m.h*0.76,d/2+0.01,'#8A8F93');
-    addBox3D(group,0.03,0.16,0.02,w*0.32,m.h*0.42,d/2+0.01,'#8A8F93');
-  },
-  'oven': (group,w,d,m)=>{ // Horno: cuerpo + ventanilla + panel de mandos
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    addBox3D(group,w*0.68,m.h*0.5,0.01,0,m.h*0.4,d/2+0.006,'#111417');
-    addBox3D(group,w*0.82,0.05,0.01,0,m.h*0.85,d/2+0.006,'#9AA0A4');
-  },
-  'drum': (group,w,d,m)=>{ // Lavadora/lavavajillas: cuerpo + puerta circular al frente
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    const r=Math.min(w,d)*0.34;
-    addCyl3D(group,r,r,0.02,0,m.h*0.48,d/2+0.011,'#2B2E33',18,0.4,Math.PI/2);
-    addCyl3D(group,r*0.8,r*0.8,0.005,0,m.h*0.48,d/2+0.022,'#AEB4B8',18,0.3,Math.PI/2);
-  },
-  'bed': (group,w,d,m)=>{ // Cama: somier bajo, colchón, cabecero y almohadas
-    const frameH=0.28, mattH=m.h-frameH;
-    addBox3D(group,w,frameH,d,0,frameH/2,0,'#B08D57');
-    addBox3D(group,w*0.98,mattH,d*0.98,0,frameH+mattH/2,0,m.color);
-    addBox3D(group,w,0.55,0.05,0,0.55/2+0.02,-d/2+0.02,shadeColor(m.color,-0.2));
-    addBox3D(group,w*0.42,0.12,d*0.24,-w*0.24,frameH+mattH+0.06,-d/2+d*0.16,'#F2EFEA');
-    addBox3D(group,w*0.42,0.12,d*0.24,w*0.24,frameH+mattH+0.06,-d/2+d*0.16,'#F2EFEA');
-  },
-  'wardrobe': (group,w,d,m)=>{ // Armario: cuerpo alto + puertas + tiradores
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    const doors=Math.max(2,Math.round(w/0.55));
-    for(let i=1;i<doors;i++) addBox3D(group,0.008,m.h*0.95,0.008,-w/2+w/doors*i, m.h/2, d/2, shadeColor(m.color,-0.25));
-    for(let i=0;i<doors;i++){ const cx=-w/2+w/doors*(i+0.5)+w/doors*0.34; addCyl3D(group,0.01,0.01,0.12,cx,m.h*0.5,d/2+0.02,'#33383B',6,0.4); }
-  },
-  'drawers': (group,w,d,m)=>{ // Cómoda: cajones apilados + tiradores
-    addBox3D(group,w,m.h,d,0,m.h/2,0,m.color);
-    const rows=3;
-    for(let i=1;i<rows;i++) addBox3D(group,w,0.006,0.006,0,m.h/rows*i,d/2, shadeColor(m.color,-0.2));
-    for(let i=0;i<rows;i++) addCyl3D(group,0.012,0.012,w*0.22,0,m.h/rows*(i+0.5),d/2+0.02,'#33383B',6,0.4,0,Math.PI/2);
-  },
-  'wc': (group,w,d,m)=>{ // Inodoro: taza + cisterna
-    addBox3D(group,w*0.7,m.h*0.62,d*0.26,0,m.h-m.h*0.31,-d/2+d*0.13,'#FFFFFF',0.5);
-    addCyl3D(group,w*0.34,w*0.24,m.h*0.5,0,m.h*0.25,d*0.06,'#FFFFFF',20,0.5);
-    addCyl3D(group,w*0.22,w*0.22,0.02,0,m.h*0.5,d*0.06,'#EDEDED',20,0.5);
-  },
-  'basin': (group,w,d,m)=>{ // Lavabo: mueble/encimera + bacha
-    addBox3D(group,w,m.h*0.78,d*0.5,0,m.h*0.78/2,-d/4,m.color,0.5);
-    addCyl3D(group,Math.min(w,d)*0.34,Math.min(w,d)*0.3,m.h*0.16,0,m.h-m.h*0.08,0,'#FFFFFF',22,0.4);
-  },
-  'shower': (group,w,d,m)=>{ // Ducha: plato + columna con alcachofa
-    addBox3D(group,w,m.h+0.03,d,0,(m.h+0.03)/2,0,m.color,0.6);
-    const cx=w/2-0.06, cz=-d/2+0.06;
-    addCyl3D(group,0.018,0.018,2.0,cx,1.0,cz,'#B7BEC2',8,0.3);
-    addCyl3D(group,0.07,0.05,0.03,cx,1.95,cz+0.12,'#9AA0A4',16,0.3,Math.PI*0.35);
-  },
-  'tub': (group,w,d,m)=>{ // Bañera: carcasa exterior + hueco interior más oscuro
-    addBox3D(group,w,m.h,d,0,m.h/2,0,'#FFFFFF',0.4);
-    addBox3D(group,w*0.82,m.h*0.62,d*0.72,0,m.h*0.62/2+m.h*0.22,0,'#DCEBF2',0.35);
-  },
-  'mirror': (group,w,d,m)=>{ // Espejo de pared: marco + superficie reflectante
-    addBox3D(group,w,m.h+0.04,0.02,0,0,0,'#7A6B4F');
-    addBox3D(group,w*0.9,m.h*0.85+0.04*0.85,0.01,0,0,0.011,m.color,0.15);
-  },
-  'plant': (group,w,d,m)=>{ // Planta: maceta + follaje
-    const r=Math.min(w,d)/2;
-    addCyl3D(group,r*0.62,r*0.85,m.h*0.32,0,m.h*0.16,0,'#8B5A3C',14);
-    addCyl3D(group,r*0.02,r*0.5,m.h*0.5,0,m.h*0.32+m.h*0.25,0,shadeColor(m.color,-0.15),8);
-    addCyl3D(group,r*0.85,r*0.05,m.h*0.42,0,m.h*0.68,0,m.color,10);
-  },
-  'pool': (group,w,d,m)=>{ // Piscina: borde + vaso de agua recesado
-    addBox3D(group,w,m.h*0.4,d,0,m.h*0.4/2,0,'#D8D2C4',0.9);
-    addBox3D(group,w*0.9,m.h*0.7,d*0.9,0,m.h*0.7/2,0,m.color,0.25);
-  },
-  'stairs': (group,w,d,m)=>{ // Escalera: peldaños ascendentes (perfil de rampa escalonada) + pasamanos
-    const steps = Math.max(6, Math.min(22, Math.round(m.h/0.18)));
-    const stepH = m.h/steps, treadD = d/steps;
-    for(let i=0;i<steps;i++){
-      const topY = stepH*(i+1);
-      const z = -d/2 + treadD*(i+0.5);
-      addBox3D(group, w, topY, treadD, 0, topY/2, z, m.color);
-    }
-    addBox3D(group, 0.05, m.h*0.9, 0.05, -w/2+0.03, m.h*0.9/2, 0, '#6B5B45');
-    addBox3D(group, 0.05, m.h*0.9, 0.05, w/2-0.03, m.h*0.9/2, 0, '#6B5B45');
-  },
-  'default': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color); }
+/* ---------------- Mobiliario 3D: "recetas" por mueble ----------------
+   Cada mueble se construye combinando unas pocas piezas simples (cajas,
+   cilindros, conos, esferas) para que se reconozca su forma real, en vez
+   de una única caja. Las cajas usan fracciones (0..1) del hueco real que
+   ocupa el mueble en el plano (así se adaptan si lo agrandas o encoges);
+   las alturas (y0/y1) son metros absolutos desde el suelo. */
+const WOOD='#B08D57', WOOD_DK='#6E5642', FABRIC='#9C8770', FABRIC_DK='#8A7560',
+      METAL='#3A3A3A', WHITE='#FFFFFF', OFFWHITE='#F0EEE8', GREEN='#4C7A4E',
+      TERRACOTTA='#B5651D', WATER='#3E9BC7', GLASS='#BFD4E0';
+const FURN_RECIPES = {
+  'Sofá': [
+    {shape:'box', fx0:0, fx1:1, fz0:0.15, fz1:1, y0:0.15, y1:0.42, color:FABRIC},
+    {shape:'box', fx0:0, fx1:1, fz0:0.82, fz1:1, y0:0.42, y1:0.85, color:FABRIC},
+    {shape:'box', fx0:0, fx1:0.09, fz0:0, fz1:1, y0:0.15, y1:0.68, color:FABRIC_DK},
+    {shape:'box', fx0:0.91, fx1:1, fz0:0, fz1:1, y0:0.15, y1:0.68, color:FABRIC_DK}
+  ],
+  'Mesa': [
+    {shape:'box', fx0:0, fx1:1, fz0:0, fz1:1, y0:0.72, y1:0.78, color:WOOD},
+    {shape:'cyl', cx:0.06,cz:0.06, r:0.025, y0:0, y1:0.72, color:WOOD_DK},
+    {shape:'cyl', cx:0.94,cz:0.06, r:0.025, y0:0, y1:0.72, color:WOOD_DK},
+    {shape:'cyl', cx:0.06,cz:0.94, r:0.025, y0:0, y1:0.72, color:WOOD_DK},
+    {shape:'cyl', cx:0.94,cz:0.94, r:0.025, y0:0, y1:0.72, color:WOOD_DK}
+  ],
+  'Sillas': [
+    {shape:'box', fx0:0.08,fx1:0.92, fz0:0.08,fz1:0.92, y0:0.42, y1:0.47, color:FABRIC},
+    {shape:'box', fx0:0.08,fx1:0.92, fz0:0.75,fz1:0.9, y0:0.47, y1:0.92, color:FABRIC},
+    {shape:'cyl', cx:0.1,cz:0.1, r:0.02, y0:0, y1:0.42, color:WOOD_DK},
+    {shape:'cyl', cx:0.9,cz:0.1, r:0.02, y0:0, y1:0.42, color:WOOD_DK},
+    {shape:'cyl', cx:0.1,cz:0.9, r:0.02, y0:0, y1:0.42, color:WOOD_DK},
+    {shape:'cyl', cx:0.9,cz:0.9, r:0.02, y0:0, y1:0.42, color:WOOD_DK}
+  ],
+  'TV': [
+    {shape:'box', fx0:0.02,fx1:0.98, fz0:0.2,fz1:0.8, y0:0, y1:0.58, color:'#2B2E33'}
+  ],
+  'Mueble TV': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.4, color:'#C9BFAE'},
+    {shape:'box', fx0:0.04,fx1:0.46, fz0:0.85,fz1:0.95, y0:0.08, y1:0.32, color:WOOD_DK},
+    {shape:'box', fx0:0.54,fx1:0.96, fz0:0.85,fz1:0.95, y0:0.08, y1:0.32, color:WOOD_DK}
+  ],
+  'Estanterías': [
+    {shape:'box', fx0:0,fx1:0.06, fz0:0,fz1:1, y0:0, y1:1.8, color:WOOD},
+    {shape:'box', fx0:0.94,fx1:1, fz0:0,fz1:1, y0:0, y1:1.8, color:WOOD},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:0, y1:0.03, color:WOOD},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:0.58, y1:0.61, color:WOOD},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:1.16, y1:1.19, color:WOOD},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:1.77, y1:1.8, color:WOOD}
+  ],
+  'Alfombra': [
+    {shape:'box', fx0:0.03,fx1:0.97, fz0:0.03,fz1:0.97, y0:0, y1:0.02, color:TERRACOTTA}
+  ],
+  'Lámpara': [
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.13, y0:0, y1:0.05, color:METAL},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.02, y0:0.05, y1:1.3, color:METAL},
+    {shape:'cone', cx:0.5,cz:0.5, r:0.16, y0:1.3, y1:1.55, color:'#F0E6D2'}
+  ],
+  'Encimera': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.85, color:'#D8D2C4'},
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0.85, y1:0.9, color:'#B7AF9C'}
+  ],
+  'Muebles altos': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:1.4, y1:1.75, color:'#C9BFAE'}
+  ],
+  'Muebles bajos': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.85, color:'#C9BFAE'},
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0.85, y1:0.9, color:'#B7AF9C'}
+  ],
+  'Isla': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.85, color:'#D8D2C4'},
+    {shape:'box', fx0:-0.02>0?0:0, fx1:1, fz0:0,fz1:1, y0:0.85, y1:0.93, color:'#B7AF9C'}
+  ],
+  'Frigorífico': [
+    {shape:'box', fx0:0.03,fx1:0.97, fz0:0.03,fz1:0.97, y0:0, y1:1.8, color:'#DADFE3'},
+    {shape:'box', fx0:0.03,fx1:0.97, fz0:0.03,fz1:0.97, y0:1.18, y1:1.22, color:'#9AA1A6'}
+  ],
+  'Horno': [
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0, y1:0.6, color:'#5B6166'},
+    {shape:'box', fx0:0.12,fx1:0.88, fz0:0.12,fz1:0.88, y0:0.15, y1:0.45, color:'#1E2124'}
+  ],
+  'Lavavajillas': [
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0, y1:0.85, color:'#E7EAEC'},
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0.78, y1:0.85, color:'#B9C0C4'}
+  ],
+  'Lavadora': [
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0, y1:0.85, color:'#E7EAEC'},
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0.78, y1:0.85, color:'#B9C0C4'},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.16, y0:0.28, y1:0.32, color:'#2B2E33'}
+  ],
+  'Microondas': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:1.1, y1:1.45, color:'#3A3A3A'},
+    {shape:'box', fx0:0.08,fx1:0.7, fz0:0.08,fz1:0.92, y0:1.15, y1:1.4, color:'#1E2124'}
+  ],
+  'Cama': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.35, color:FABRIC_DK},
+    {shape:'box', fx0:0.02,fx1:0.98, fz0:0.02,fz1:0.98, y0:0.35, y1:0.55, color:'#B7C4D6'},
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:0.06, y0:0.35, y1:0.95, color:WOOD_DK},
+    {shape:'box', fx0:0.08,fx1:0.45, fz0:0.07,fz1:0.28, y0:0.55, y1:0.68, color:WHITE},
+    {shape:'box', fx0:0.55,fx1:0.92, fz0:0.07,fz1:0.28, y0:0.55, y1:0.68, color:WHITE}
+  ],
+  'Mesilla': [
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0, y1:0.55, color:WOOD},
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.05,fz1:0.95, y0:0.35, y1:0.4, color:WOOD_DK}
+  ],
+  'Armario': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:2.0, color:WOOD},
+    {shape:'box', fx0:0.48,fx1:0.52, fz0:0,fz1:1, y0:0, y1:2.0, color:WOOD_DK}
+  ],
+  'Cómoda': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.8, color:WOOD},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:0.16, y1:0.22, color:WOOD_DK},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:0.4, y1:0.46, color:WOOD_DK},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0,fz1:1, y0:0.64, y1:0.7, color:WOOD_DK}
+  ],
+  'Escritorio': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0.7, y1:0.76, color:WOOD},
+    {shape:'box', fx0:0,fx1:0.16, fz0:0,fz1:1, y0:0, y1:0.7, color:WOOD_DK},
+    {shape:'cyl', cx:0.94,cz:0.06, r:0.02, y0:0, y1:0.7, color:WOOD_DK},
+    {shape:'cyl', cx:0.94,cz:0.94, r:0.02, y0:0, y1:0.7, color:WOOD_DK}
+  ],
+  'WC': [
+    {shape:'box', fx0:0.1,fx1:0.9, fz0:0.65,fz1:1, y0:0.32, y1:0.75, color:WHITE},
+    {shape:'cyl', cx:0.5,cz:0.42, r:0.19, r2:0.13, y0:0.35, y1:0.44, color:WHITE},
+    {shape:'cyl', cx:0.5,cz:0.42, r:0.13, y0:0, y1:0.35, color:WHITE}
+  ],
+  'Lavabo': [
+    {shape:'box', fx0:0.1,fx1:0.9, fz0:0.1,fz1:0.9, y0:0, y1:0.75, color:WHITE},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.2, y0:0.72, y1:0.8, color:OFFWHITE},
+    {shape:'cyl', cx:0.5,cz:0.18, r:0.015, y0:0.8, y1:0.98, color:'#B7BFC2'}
+  ],
+  'Ducha': [
+    {shape:'box', fx0:0.04,fx1:0.96, fz0:0.04,fz1:0.96, y0:0, y1:0.08, color:GLASS},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.04, y0:0.08, y1:0.09, color:METAL}
+  ],
+  'Bañera': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.55, color:WHITE},
+    {shape:'box', fx0:0.06,fx1:0.94, fz0:0.1,fz1:0.9, y0:0.16, y1:0.5, color:'#E4F1F6'}
+  ],
+  'Mueble de baño': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0, y1:0.8, color:'#C9BFAE'},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.19, y0:0.78, y1:0.85, color:OFFWHITE}
+  ],
+  'Espejo': [
+    {shape:'box', fx0:0.05,fx1:0.95, fz0:0.25,fz1:0.75, y0:0, y1:0.8, color:GLASS}
+  ],
+  'Mesa exterior': [
+    {shape:'box', fx0:0,fx1:1, fz0:0,fz1:1, y0:0.72, y1:0.78, color:'#A9A296'},
+    {shape:'cyl', cx:0.06,cz:0.06, r:0.025, y0:0, y1:0.72, color:'#7C776B'},
+    {shape:'cyl', cx:0.94,cz:0.06, r:0.025, y0:0, y1:0.72, color:'#7C776B'},
+    {shape:'cyl', cx:0.06,cz:0.94, r:0.025, y0:0, y1:0.72, color:'#7C776B'},
+    {shape:'cyl', cx:0.94,cz:0.94, r:0.025, y0:0, y1:0.72, color:'#7C776B'}
+  ],
+  'Sillas exterior': [
+    {shape:'box', fx0:0.08,fx1:0.92, fz0:0.08,fz1:0.92, y0:0.42, y1:0.46, color:'#D9D9D3'},
+    {shape:'box', fx0:0.08,fx1:0.92, fz0:0.75,fz1:0.88, y0:0.46, y1:0.88, color:'#D9D9D3'},
+    {shape:'cyl', cx:0.1,cz:0.1, r:0.02, y0:0, y1:0.42, color:'#8C8C86'},
+    {shape:'cyl', cx:0.9,cz:0.1, r:0.02, y0:0, y1:0.42, color:'#8C8C86'},
+    {shape:'cyl', cx:0.1,cz:0.9, r:0.02, y0:0, y1:0.42, color:'#8C8C86'},
+    {shape:'cyl', cx:0.9,cz:0.9, r:0.02, y0:0, y1:0.42, color:'#8C8C86'}
+  ],
+  'Barbacoa': [
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.27, y0:0, y1:0.05, color:METAL},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.02, y0:0.05, y1:0.5, color:METAL},
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.22, y0:0.5, y1:0.62, color:'#2E2E2E'},
+    {shape:'sphere', cx:0.5,cz:0.5, r:0.2, y:0.72, color:'#2E2E2E'}
+  ],
+  'Plantas': [
+    {shape:'cyl', cx:0.5,cz:0.5, r:0.14, r2:0.11, y0:0, y1:0.3, color:TERRACOTTA},
+    {shape:'sphere', cx:0.5,cz:0.5, r:0.19, y:0.55, color:GREEN}
+  ],
+  'Piscina': [
+    {shape:'box', fx0:0.02,fx1:0.98, fz0:0.02,fz1:0.98, y0:-0.05, y1:0.02, color:WATER}
+  ]
 };
+function addFurnRecipePart(group, part, wM, hM){
+  const mat = new THREE.MeshStandardMaterial({color: part.color, roughness: part.rough!==undefined?part.rough:0.85});
+  let mesh;
+  if(part.shape==='cyl'){
+    const h = Math.max(0.01, part.y1-part.y0);
+    mesh = new THREE.Mesh(new THREE.CylinderGeometry(Math.max(0.005,part.r), Math.max(0.005,part.r2!==undefined?part.r2:part.r), h, 16), mat);
+    mesh.position.set((part.cx-0.5)*wM, (part.y0+part.y1)/2, (part.cz-0.5)*hM);
+  } else if(part.shape==='cone'){
+    const h = Math.max(0.01, part.y1-part.y0);
+    mesh = new THREE.Mesh(new THREE.ConeGeometry(Math.max(0.005,part.r), h, 16), mat);
+    mesh.position.set((part.cx-0.5)*wM, (part.y0+part.y1)/2, (part.cz-0.5)*hM);
+  } else if(part.shape==='sphere'){
+    mesh = new THREE.Mesh(new THREE.SphereGeometry(Math.max(0.01,part.r), 14, 10), mat);
+    mesh.position.set((part.cx-0.5)*wM, part.y, (part.cz-0.5)*hM);
+  } else {
+    const sx = Math.max(0.01,(part.fx1-part.fx0))*wM, sz = Math.max(0.01,(part.fz1-part.fz0))*hM, sy = Math.max(0.01, part.y1-part.y0);
+    mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+    mesh.position.set(((part.fx0+part.fx1)/2-0.5)*wM, (part.y0+part.y1)/2, ((part.fz0+part.fz1)/2-0.5)*hM);
+  }
+  group.add(mesh);
+}
 function extrudeFootprint3D(pointsM, height, color, opacity){
   const pts = pointsM.map(pt=>new THREE.Vector2(pt.x, -pt.y));
   const shape = new THREE.Shape(pts);
@@ -3678,20 +3583,21 @@ function buildColumnMesh3D(col, scale, floorHeight){
   mesh.position.set(col.x/scale+wM/2, floorHeight/2, col.y/scale+hM/2);
   return mesh;
 }
-function buildFurnitureMesh3D(item, scale, floorHeight){
-  const meta = FURN_META[item.label] || {fam:'default'};
-  const meta3d = FURN3D[meta.fam] || FURN3D.default;
+const DEFAULT_LIFT_CM = { 'TV':110, 'Espejo':100 };
+function buildFurnitureMesh3D(item, scale){
   const wM = Math.max(0.05, item.w/scale), hM = Math.max(0.05, item.h/scale);
-  const lift = meta3d.lift||0;
-  // La escalera tiene que salvar la altura real de la planta (no una altura fija de
-  // "mueble"), para representar de verdad el hueco que ocupa entre plantas.
-  const effectiveMeta = (meta.fam==='stairs' && floorHeight) ? {...meta3d, h:floorHeight} : meta3d;
   const group = new THREE.Group();
-  const builder = FURN_BUILDERS[meta.fam] || FURN_BUILDERS.default;
-  try{ builder(group, wM, hM, effectiveMeta); }
-  catch(e){ FURN_BUILDERS.default(group, wM, hM, effectiveMeta); }
-  if(item.rot) group.rotation.y = -item.rot*Math.PI/180;
-  group.position.set(item.x/scale+wM/2, SLAB_H_3D+lift, item.y/scale+hM/2);
+  const recipe = FURN_RECIPES[item.label];
+  if(recipe){
+    recipe.forEach(part=>addFurnRecipePart(group, part, wM, hM));
+  } else {
+    const meta = FURN_META[item.label] || {fam:'default'};
+    const meta3d = FURN3D[meta.fam] || FURN3D.default;
+    const heightM = item.heightCm ? Math.max(0.02, item.heightCm/100) : meta3d.h;
+    addFurnRecipePart(group, {shape:'box', fx0:0,fx1:1,fz0:0,fz1:1, y0:0, y1:heightM, color:meta3d.color}, wM, hM);
+  }
+  const liftM = (item.liftCm||0)/100;
+  group.position.set(item.x/scale+wM/2, SLAB_H_3D+liftM, item.y/scale+hM/2);
   return group;
 }
 function buildFloorGroup3D(p, floor, scale){
@@ -3704,7 +3610,7 @@ function buildFloorGroup3D(p, floor, scale){
     if(!r.points || r.points.length<3) return;
     const pts = r.points.map(pt=>({x:pt.x/scale, y:pt.y/scale}));
     group.add(extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc'));
-    (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale, floorHeight)));
+    (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale)));
   });
   walls.forEach(w=>group.add(buildWallGroup3D(w, scale, floorHeight)));
   columns.forEach(c=>group.add(buildColumnMesh3D(c, scale, floorHeight)));
