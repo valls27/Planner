@@ -1050,7 +1050,7 @@ function removeProsCon(id, itemId){
 }
 
 /* --- Plano --- */
-const ROOM_COLORS = ['#3B8CE8','#F2782E','#1EBD6B','#F2C319','#A63BE8','#E83B93','#1FC2C2','#E8433B','#5A6BE8','#B8D22A'];
+const ROOM_COLORS = ['#3B8CE8','#F2782E','#1EBD6B','#F2C319','#A63BE8','#E83B93','#1FC2C2','#E8433B','#5A6BE8','#B8D22A','#FFFFFF'];
 const FURN_CATALOG = [
   {cat:'Salón', items:['Sofá','Mesa','Sillas','TV','Mueble TV','Estanterías','Alfombra','Lámpara']},
   {cat:'Cocina', items:['Encimera','Muebles altos','Muebles bajos','Isla','Frigorífico','Horno','Lavavajillas','Lavadora','Microondas']},
@@ -1109,7 +1109,7 @@ let planState = { selectedRoom:null, selectedFurn:null, selectedWall:null, selec
   currentFloor:null,
   splitWalls:new Set(),
   sidePanel:'rooms',
-  viewMode:'2d', view3DAllFloors:false,
+  viewMode:'2d', view3DAllFloors:false, showFloorBelow:true,
   mousePos:null }; // scale px per meter
 const DOOR_PRESETS = [
   {label:'Puerta 62,5 cm', w:0.625},
@@ -1139,6 +1139,8 @@ function currentFloorId(p){
 function roomsOnFloor(p){ const fid=currentFloorId(p); return p.rooms.filter(r=>(r.floor||p.floors[0].id)===fid); }
 function wallsOnFloor(p){ const fid=currentFloorId(p); return (p.walls||[]).filter(w=>(w.floor||p.floors[0].id)===fid); }
 function columnsOnFloor(p){ const fid=currentFloorId(p); return (p.columns||[]).filter(c=>(c.floor||p.floors[0].id)===fid); }
+function roomsOfFloorId(p, fid){ return p.rooms.filter(r=>(r.floor||p.floors[0].id)===fid); }
+function wallsOfFloorId(p, fid){ return (p.walls||[]).filter(w=>(w.floor||p.floors[0].id)===fid); }
 function switchFloor(pid, floorId){
   planState.currentFloor = floorId;
   planState.selectedRoom=null; planState.selectedFurn=null; planState.selectedWall=null; planState.selectedColumn=null; planState.selectedOpening=null;
@@ -1630,6 +1632,7 @@ function tabPlano(p){
           <button class="icon-btn" title="Acercar" onclick="zoomPlan(1)">+</button>
           <button class="btn sm ghost" style="border:1px solid var(--line)" onclick="zoomPlanReset()">Ajustar</button>
           <button class="icon-btn" title="Cómo usar el editor de planos" onclick="showPlanHelp()">?</button>
+          ${p.floors.findIndex(f=>f.id===floorId)>0 ? `<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;margin-left:6px"><input type="checkbox" ${planState.showFloorBelow?'checked':''} onchange="toggleFloorBelow('${p.id}')"> Ver planta de abajo</label>` : ''}
           <span class="help" style="margin:0 0 0 8px;flex:1">${modeHint}</span>
         </div>
         <div class="plan-canvas-holder">
@@ -1718,9 +1721,9 @@ function doSplitRoom(pid){
     <h2>Nombrar los dos espacios</h2>
     <p class="help" style="margin-top:0">El muro seleccionado se conserva como separación entre ambos.</p>
     <div class="field"><label>Nombre del primer espacio</label><input id="split-name-1" value="${escapeHtml(parent.name)} A" placeholder="Ej. Salón"></div>
-    <div class="field"><label>Color</label><div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch split-swatch-1" data-c="${c}" style="background:${c};border:2px solid ${c===parent.color?'var(--ink)':'transparent'}" onclick="pickSplitColor(1,this,'${c}')"></button>`).join(' ')}</div><input type="hidden" id="split-color-1" value="${parent.color}"></div>
+    <div class="field"><label>Color</label><div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch split-swatch-1" data-c="${c}" style="background:${c};border:2px solid ${c===parent.color?'var(--ink)':'#00000022'}" onclick="pickSplitColor(1,this,'${c}')"></button>`).join(' ')}</div><input type="hidden" id="split-color-1" value="${parent.color}"></div>
     <div class="field"><label>Nombre del segundo espacio</label><input id="split-name-2" value="${escapeHtml(parent.name)} B" placeholder="Ej. Cocina"></div>
-    <div class="field"><label>Color</label><div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch split-swatch-2" data-c="${c}" style="background:${c};border:2px solid ${i===1?'var(--ink)':'transparent'}" onclick="pickSplitColor(2,this,'${c}')"></button>`).join(' ')}</div><input type="hidden" id="split-color-2" value="${ROOM_COLORS[1]}"></div>
+    <div class="field"><label>Color</label><div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch split-swatch-2" data-c="${c}" style="background:${c};border:2px solid ${i===1?'var(--ink)':'#00000022'}" onclick="pickSplitColor(2,this,'${c}')"></button>`).join(' ')}</div><input type="hidden" id="split-color-2" value="${ROOM_COLORS[1]}"></div>
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="confirmSplitRoom()">Dividir habitación</button></div>
   `, ()=>document.getElementById('split-name-1').focus());
 }
@@ -1961,6 +1964,10 @@ function setPlanViewMode(pid, mode){
   planState.viewMode = mode;
   refreshTab(getProject(pid));
 }
+function toggleFloorBelow(pid){
+  planState.showFloorBelow = !planState.showFloorBelow;
+  const c=document.getElementById('planCanvas'); if(c && c._redraw) c._redraw();
+}
 function zoomPlan(dir){
   planState.zoom = Math.max(0.4, Math.min(2.5, Math.round((planState.zoom + dir*0.15)*100)/100));
   const c=document.getElementById('planCanvas'); if(c && c._redraw) c._redraw();
@@ -2061,8 +2068,15 @@ function renderFurnPanel(p){
     <h3 style="margin-top:0;font-size:14px">Espacio seleccionado</h3>
     <div class="field"><label>Nombre</label><input value="${escapeHtml(room.name)}" placeholder="Ej. Cocina, Salón, Habitación 1..." onchange="updateRoom('${p.id}','${room.id}','name',this.value)"></div>
     <div class="field"><label>Superficie</label><input value="${fmtM2(roomAreaM2(room))}" disabled></div>
-    <div class="field"><label>Color</label>
-      <div>${ROOM_COLORS.map(c=>`<button class="swatch" style="background:${c};border:2px solid ${room.color===c?'var(--ink)':'transparent'}" onclick="updateRoom('${p.id}','${room.id}','color','${c}')"></button>`).join(' ')}</div>
+    <div class="field"><label>Color (para identificar la zona en el plano)</label>
+      <div>${ROOM_COLORS.map(c=>`<button class="swatch" style="background:${c};border:2px solid ${room.color===c?'var(--ink)':'#00000022'}" onclick="updateRoom('${p.id}','${room.id}','color','${c}')"></button>`).join(' ')}</div>
+    </div>
+    <div class="field"><label>Suelo (para la vista 3D)</label>
+      <select onchange="updateRoomFloorMaterial('${p.id}','${room.id}',this.value)">
+        <option value="">Sin asignar — usar el color de arriba</option>
+        ${DB.materials.filter(m=>m.category==='Suelo').map(m=>`<option value="${m.id}" ${room.floorMaterialId===m.id?'selected':''}>${escapeHtml(m.name)}</option>`).join('')}
+      </select>
+      <p class="help" style="margin:4px 0 0">Si asignas un suelo del catálogo de Materiales, la vista 3D lo pinta con su color y patrón (liso, madera o baldosa) en vez del color de zonificación.</p>
     </div>
     <div class="field"><label>Notas</label><textarea onchange="updateRoom('${p.id}','${room.id}','notes',this.value)">${escapeHtml(room.notes)}</textarea></div>
     <p class="help" style="margin-top:0">Arrastra las esquinas (cuadraditos) del plano para dar la forma que quieras, incluidas paredes en diagonal. Arrastra dentro de la forma para moverla entera.</p>
@@ -2191,6 +2205,11 @@ function updateRoom(pid, rid, field, value){
   r[field] = (field==='height') ? Number(value) : value;
   touchProject(p); refreshTab(p);
 }
+function updateRoomFloorMaterial(pid, rid, materialId){
+  const p = getProject(pid); const r = p.rooms.find(r=>r.id===rid);
+  r.floorMaterialId = materialId || null;
+  touchProject(p); refreshTab(p);
+}
 function addRoomVertex(pid, rid){
   const p = getProject(pid); const r = p.rooms.find(r=>r.id===rid);
   let maxLen=-1, idx=0;
@@ -2226,7 +2245,7 @@ function finishFreeDrawUI(pid){
     <h2>Nombrar espacio</h2>
     <div class="field"><label>Nombre</label><input id="fd-name" placeholder="Ej. Cocina, Salón, Habitación 1..."></div>
     <div class="field"><label>Color</label>
-      <div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch fd-swatch" data-c="${c}" style="background:${c};border:2px solid ${i===0?'var(--ink)':'transparent'}" onclick="pickFdColor(this,'${c}')"></button>`).join(' ')}</div>
+      <div>${ROOM_COLORS.map((c,i)=>`<button type="button" class="swatch fd-swatch" data-c="${c}" style="background:${c};border:2px solid ${i===0?'var(--ink)':'#00000022'}" onclick="pickFdColor(this,'${c}')"></button>`).join(' ')}</div>
       <input type="hidden" id="fd-color" value="${ROOM_COLORS[0]}">
     </div>
     <div class="modal-actions"><button class="btn ghost" onclick="cancelFreeDrawFromModal('${pid}')">Cancelar</button><button class="btn primary" onclick="saveFreeDraw('${pid}')">Crear espacio</button></div>
@@ -2234,7 +2253,7 @@ function finishFreeDrawUI(pid){
 }
 function pickFdColor(btn, c){
   document.getElementById('fd-color').value = c;
-  document.querySelectorAll('.fd-swatch').forEach(b=>b.style.border='2px solid transparent');
+  document.querySelectorAll('.fd-swatch').forEach(b=>b.style.border='2px solid #00000022');
   btn.style.border = '2px solid var(--ink)';
 }
 function cancelFreeDrawFromModal(pid){ closeModal(); cancelFreeDraw(pid); }
@@ -2320,6 +2339,31 @@ function initPlanCanvas(p){
       ctx.strokeStyle = 'rgba(30,42,46,.06)'; ctx.lineWidth = 1;
       for(let gx=startX; gx<worldMaxX; gx+=gridStep){ ctx.beginPath(); ctx.moveTo(gx,worldMinY); ctx.lineTo(gx,worldMaxY); ctx.stroke(); }
       for(let gy=startY; gy<worldMaxY; gy+=gridStep){ ctx.beginPath(); ctx.moveTo(worldMinX,gy); ctx.lineTo(worldMaxX,gy); ctx.stroke(); }
+    }
+    // Planta de abajo como referencia ("papel cebolla"): dibuja en gris muy tenue el
+    // contorno de habitaciones y muros de la planta inferior, para poder alinear a ojo
+    // las medidas entre plantas y que luego encajen bien en la vista 3D.
+    if(planState.showFloorBelow){
+      const idx = p.floors.findIndex(f=>f.id===currentFloorId(p));
+      const below = idx>0 ? p.floors[idx-1] : null;
+      if(below){
+        ctx.save();
+        ctx.globalAlpha = 0.28;
+        roomsOfFloorId(p, below.id).forEach(r=>{
+          ctx.beginPath();
+          r.points.forEach((pt,i)=> i===0 ? ctx.moveTo(pt.x,pt.y) : ctx.lineTo(pt.x,pt.y));
+          ctx.closePath();
+          ctx.strokeStyle = '#5B6B6E'; ctx.lineWidth = 1.5;
+          ctx.setLineDash([5,4]); ctx.stroke(); ctx.setLineDash([]);
+        });
+        wallsOfFloorId(p, below.id).forEach(w=>{
+          const wt = WALL_TYPES[w.type];
+          drawWallShape(ctx, w.a, w.b, (w.thickness||wt.thickness)*planState.scale, '#5B6B6E', '#8B979A', false);
+        });
+        ctx.font = '600 10px IBM Plex Sans'; ctx.fillStyle = '#5B6B6E';
+        ctx.fillText('Referencia: '+below.name, 8, 14);
+        ctx.restore();
+      }
     }
     const floorRooms = roomsOnFloor(p);
     // Pasada 1: rellenos, contornos y acotaciones de todas las habitaciones (para que ninguna tape la etiqueta de otra)
@@ -3177,6 +3221,13 @@ function addMaterial(editId){
       <div class="field"><label>Proveedor</label><input id="mt-prov" value="${m?escapeHtml(m.provider||''):''}"></div>
       <div class="field"><label>Color</label><input id="mt-color" type="color" value="${m?(m.color||'#DCE8ED'):'#DCE8ED'}"></div>
     </div>
+    <div class="field"><label>Patrón en la vista 3D (para suelos)</label>
+      <select id="mt-pattern">
+        <option value="liso" ${(!m||m.pattern==='liso'||!m.pattern)?'selected':''}>Liso</option>
+        <option value="madera" ${m&&m.pattern==='madera'?'selected':''}>Madera / parquet (tablones)</option>
+        <option value="baldosa" ${m&&m.pattern==='baldosa'?'selected':''}>Baldosa (rejilla)</option>
+      </select>
+    </div>
     <div class="field"><label>Enlace</label><input id="mt-link" value="${m?escapeHtml(m.link||''):''}" placeholder="https://..."></div>
     <div class="field"><label>Notas</label><textarea id="mt-notes">${m?escapeHtml(m.notes||''):''}</textarea></div>
     <div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Cancelar</button><button class="btn primary" onclick="saveMaterial('${editId||''}')">Guardar</button></div>
@@ -3187,6 +3238,7 @@ function saveMaterial(editId){
   const vals = {category:document.getElementById('mt-cat').value, name,
     price:Number(document.getElementById('mt-price').value)||0, unit:document.getElementById('mt-unit').value,
     provider:document.getElementById('mt-prov').value, color:document.getElementById('mt-color').value,
+    pattern:document.getElementById('mt-pattern').value,
     link:document.getElementById('mt-link').value, notes:document.getElementById('mt-notes').value};
   if(editId){
     const m = DB.materials.find(x=>x.id===editId); Object.assign(m, vals);
@@ -3659,12 +3711,54 @@ const FURN_BUILDERS = {
   },
   'default': (group,w,d,m)=>{ addBox3D(group,w,m.h,d,0,m.h/2,0,m.color); }
 };
-function extrudeFootprint3D(pointsM, height, color, opacity){
+/* Genera una textura sencilla y repetible para representar un suelo (parquet o
+   baldosa) en la vista 3D a partir del color del material y su patrón. No es una
+   textura fotorrealista, es una aproximación esquemática — vetas/tablones para
+   madera, o una rejilla para baldosa — para distinguir de un vistazo qué suelo
+   hay puesto, en vez de un color liso. */
+function makeFloorTexture3D(color, pattern){
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 128;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = color || '#cccccc';
+  ctx.fillRect(0,0,128,128);
+  if(pattern==='madera'){
+    const rows=4, rowH=128/rows;
+    for(let i=0;i<rows;i++){
+      ctx.strokeStyle='rgba(0,0,0,0.22)'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(0,i*rowH); ctx.lineTo(128,i*rowH); ctx.stroke();
+      const offset = (i%2===0)?0:42;
+      ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.moveTo(offset,i*rowH); ctx.lineTo(offset,(i+1)*rowH); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(offset+42,i*rowH); ctx.lineTo(offset+42,(i+1)*rowH); ctx.stroke();
+      ctx.strokeStyle='rgba(0,0,0,0.05)'; ctx.lineWidth=1;
+      for(let v=0;v<3;v++){ const y=i*rowH+rowH*(0.25+v*0.25); ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(128,y); ctx.stroke(); }
+    }
+  } else if(pattern==='baldosa'){
+    ctx.strokeStyle='rgba(0,0,0,0.25)'; ctx.lineWidth=3;
+    const n=4, step=128/n;
+    for(let i=0;i<=n;i++){
+      ctx.beginPath(); ctx.moveTo(i*step,0); ctx.lineTo(i*step,128); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0,i*step); ctx.lineTo(128,i*step); ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+function extrudeFootprint3D(pointsM, height, color, opacity, texture, repeatX, repeatY){
   const pts = pointsM.map(pt=>new THREE.Vector2(pt.x, -pt.y));
   const shape = new THREE.Shape(pts);
   const geo = new THREE.ExtrudeGeometry(shape, {depth:height, bevelEnabled:false});
   geo.rotateX(-Math.PI/2);
-  const mat = new THREE.MeshStandardMaterial({color, roughness:0.9, transparent: opacity!==undefined, opacity: opacity!==undefined?opacity:1});
+  const matOpts = {roughness:0.9, transparent: opacity!==undefined, opacity: opacity!==undefined?opacity:1};
+  if(texture){
+    texture.repeat.set(Math.max(0.5,repeatX||1), Math.max(0.5,repeatY||1));
+    matOpts.map = texture; matOpts.color = 0xffffff;
+  } else {
+    matOpts.color = color;
+  }
+  const mat = new THREE.MeshStandardMaterial(matOpts);
   return new THREE.Mesh(geo, mat);
 }
 function buildWallGroup3D(wall, scale, floorHeight, colorOverride){
@@ -3727,7 +3821,17 @@ function buildFloorGroup3D(p, floor, scale){
   rooms.forEach(r=>{
     if(!r.points || r.points.length<3) return;
     const pts = r.points.map(pt=>({x:pt.x/scale, y:pt.y/scale}));
-    group.add(extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc'));
+    const mat = r.floorMaterialId ? DB.materials.find(m=>m.id===r.floorMaterialId) : null;
+    let floorMesh;
+    if(mat){
+      const xs=pts.map(pt=>pt.x), ys=pts.map(pt=>pt.y);
+      const wSpan=Math.max(...xs)-Math.min(...xs), dSpan=Math.max(...ys)-Math.min(...ys);
+      const tex = makeFloorTexture3D(mat.color, mat.pattern);
+      floorMesh = extrudeFootprint3D(pts, SLAB_H_3D, null, undefined, tex, wSpan, dSpan);
+    } else {
+      floorMesh = extrudeFootprint3D(pts, SLAB_H_3D, r.color||'#cccccc');
+    }
+    group.add(floorMesh);
     (r.furniture||[]).forEach(f=>group.add(buildFurnitureMesh3D(f, scale, floorHeight)));
   });
   walls.forEach(w=>group.add(buildWallGroup3D(w, scale, floorHeight)));
